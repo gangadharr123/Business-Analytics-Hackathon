@@ -1,0 +1,26 @@
+# Python cache and compiled files
+__pycache__/
+*.pyc
+
+# Virtual Environments
+venv/
+env/
+.env
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints
+
+# Data files (Important: Keep git light by ignoring large datasets)
+*.csv
+*.xlsx
+*.xls
+*.json
+*.zip
+data/
+
+# IDE and Editor settings (VS Code, PyCharm, etc.)
+.vscode/
+.idea/
+
+# OS generated files
+Thumbs.db
