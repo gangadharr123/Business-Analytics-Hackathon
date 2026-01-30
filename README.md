@@ -1,16 +1,7 @@
 # Business-Analytics-Hackathon
 EBS Business Analytics Hackathon
 # Commute Reliability Estimator: EBS Business Analytics Hackathon
-██████████████████████████████████████████████████
-██                                              ██
-██   ██████╗  ██████╗                           ██
-██   ██╔══██╗ ██╔══██╗    DEUTSCHE BAHN         ██
-██   ██║  ██║ ██████╔╝    DELAY ESTIMATOR       ██
-██   ██║  ██║ ██╔══██╗                          ██
-██   ██████╔╝ ██████╔╝                          ██
-██   ╚═════╝  ╚═════╝                           ██
-██                                              ██
-██████████████████████████████████████████████████
+
 ## Project Overview
 **Goal:** Develop a data-driven tool to estimate the probability of public transport delays for commuters traveling to the university.
 
