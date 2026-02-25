@@ -14,7 +14,9 @@ REPORTS_DIR = PROJECT_ROOT / "reports"
 for _dir in (RAW_DIR, PROCESSED_DIR, MODELS_DIR, REPORTS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
-RAW_DATA_FILE = RAW_DIR / "data-2025-12.parquet"
+RAW_DATA_BASENAME = "data-2025-12.parquet"
+RAW_DATA_CANDIDATES = [RAW_DIR / RAW_DATA_BASENAME, DATA_DIR / RAW_DATA_BASENAME]
+RAW_DATA_FILE = next((p for p in RAW_DATA_CANDIDATES if p.exists()), RAW_DATA_CANDIDATES[0])
 FILTERED_DATA_FILE = PROCESSED_DIR / "ebs_commute_data.csv"
 ENRICHED_DATA_FILE = PROCESSED_DIR / "ebs_commute_data_enriched.csv"
 MODEL_FILE = MODELS_DIR / "delay_model_v3.joblib"

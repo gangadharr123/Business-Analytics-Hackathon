@@ -228,3 +228,18 @@ Next step:
 - Re-train and compare feature-importance stability across seasons
 
 This will make the model more robust and academically stronger for final evaluation.
+
+
+## 10) Troubleshooting (Windows path issue)
+
+If you see `FileNotFoundError: Raw data not found ... data\raw\data-2025-12.parquet`, it means your parquet is in `data/` root instead of `data/raw/`.
+
+You can use either option:
+1. Move file to `data/raw/data-2025-12.parquet`, or
+2. Run with explicit path:
+
+```bash
+python src/01_filter_data.py --input data/data-2025-12.parquet
+```
+
+The script now also auto-detects common locations (`data/raw` and `data`) and will log which file it selected.

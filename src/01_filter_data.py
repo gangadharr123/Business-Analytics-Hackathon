@@ -9,11 +9,38 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
-from config import FILTERED_DATA_FILE, RAW_DATA_FILE, REQUIRED_FILTER_COLUMNS, TARGET_STATIONS
+from config import DATA_DIR, FILTERED_DATA_FILE, RAW_DATA_FILE, RAW_DIR, REQUIRED_FILTER_COLUMNS, TARGET_STATIONS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
+
+
+
+def _resolve_input_file(input_file: Path) -> Path:
+    if input_file.exists():
+        return input_file
+
+    candidate_paths = [
+        RAW_DIR / input_file.name,
+        DATA_DIR / input_file.name,
+        DATA_DIR / "raw" / input_file.name,
+    ]
+    for candidate in candidate_paths:
+        if candidate.exists():
+            logger.warning("Input file not found at %s; using detected file at %s", input_file, candidate)
+            return candidate
+
+    fallback_files = list((DATA_DIR).glob("*.parquet")) + list((RAW_DIR).glob("*.parquet"))
+    if len(fallback_files) == 1:
+        logger.warning("Input file not found at %s; using discovered parquet file %s", input_file, fallback_files[0])
+        return fallback_files[0]
+
+    raise FileNotFoundError(
+        f"Raw data not found at {input_file}.\n"
+        f"Checked: {', '.join(str(p) for p in candidate_paths)}.\n"
+        "Tip: move parquet to data/raw/data-2025-12.parquet or run with --input <path>."
+    )
 
 def _validate_columns(columns: list[str], required: list[str]) -> None:
     missing = sorted(set(required) - set(columns))
@@ -24,8 +51,7 @@ def _validate_columns(columns: list[str], required: list[str]) -> None:
 def filter_commuter_data(input_file: Path = RAW_DATA_FILE, output_file: Path = FILTERED_DATA_FILE) -> pd.DataFrame:
     logger.info("Pipeline start: filtering %s", input_file)
 
-    if not input_file.exists():
-        raise FileNotFoundError(f"Raw data not found at {input_file}")
+    input_file = _resolve_input_file(input_file)
 
     schema_columns = pq.read_schema(input_file).names
     _validate_columns(schema_columns, REQUIRED_FILTER_COLUMNS)
