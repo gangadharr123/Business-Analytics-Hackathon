@@ -22,6 +22,7 @@ src/
   04_commute_tool.py       # Baseline lookup tool (weekday x hour)
   05_train_ml_model.py     # Step 3: time-aware training, model comparison, threshold tuning
   06_smart_commute_tool.py # Step 4: inference tool using saved model + threshold
+  07_feature_analysis.py   # Step 5: data availability + feature impact analysis
   config.py                # Central paths, constants, station map
 
 data/
@@ -38,6 +39,7 @@ models/
 ## Feature engineering implemented
 
 The training pipeline now includes:
+- Weather-focused engineered features (`adverse_weather_score`, `wind_precip_interaction`, `temp_extreme_flag`, `heavy_rain_flag`).
 - Cyclical time encoding (`hour_sin`, `hour_cos`).
 - Peak-hour indicator (`is_peak_hour`).
 - Weekend indicator (`is_weekend`).
@@ -58,6 +60,7 @@ python src/01_filter_data.py
 python src/02_enrich_data.py
 python src/05_train_ml_model.py
 python src/06_smart_commute_tool.py
+python src/07_feature_analysis.py --input data/processed/ebs_commute_data_enriched.csv
 ```
 
 ---
@@ -72,3 +75,12 @@ Once pilot logic is validated, switch input from Dec 2025 only to **Jun 2024 →
 - Consolidated external file paths in `config.py` (weather/construction/strikes) to avoid duplicated path logic.
 - Improved parquet schema validation in Step 1 before selective reads.
 - Added a small smoke test command below to validate training/inference on synthetic data.
+
+
+## Feature impact outputs
+
+Run `07_feature_analysis.py` to generate:
+- `reports/feature_analysis/data_availability_report.json`
+- `reports/feature_analysis/feature_analysis_metrics.json`
+- `reports/feature_analysis/feature_importance_recall.csv`
+- `reports/feature_analysis/weather_feature_importance.csv`

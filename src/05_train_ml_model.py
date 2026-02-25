@@ -13,6 +13,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import accuracy_score, confusion_matrix, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -23,6 +24,7 @@ from config import (
     ENRICHED_DATA_FILE,
     MODEL_FILE,
     MODEL_METADATA_FILE,
+    REPORTS_DIR,
     STATION_MAP,
     WEATHER_COLUMNS,
 )
@@ -55,6 +57,17 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     for c in WEATHER_COLUMNS:
         if c not in df.columns:
             df[c] = 0
+
+    # Weather-focused feature engineering
+    df["adverse_weather_score"] = (
+        1.5 * df["precip_mm"].clip(lower=0)
+        + 1.0 * df["rain_mm"].clip(lower=0)
+        + 2.0 * df["snow_cm"].clip(lower=0)
+        + 0.03 * df["wind_gusts_kmh"].clip(lower=0)
+    )
+    df["temp_extreme_flag"] = ((df["temp_c"] <= -2) | (df["temp_c"] >= 30)).astype(int)
+    df["wind_precip_interaction"] = (df["wind_speed_kmh"].clip(lower=0) * df["precip_mm"].clip(lower=0))
+    df["heavy_rain_flag"] = (df["rain_mm"] >= 2.0).astype(int)
 
     return df
 
@@ -99,6 +112,7 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
         "weekday", "hour", "train_type", "station_id", "direction",
         "is_holiday", "construction_impact", "strike_impact", "month", "day_of_month",
         "hour_sin", "hour_cos", "is_weekend", "is_peak_hour", "station_hour_risk",
+        "adverse_weather_score", "temp_extreme_flag", "wind_precip_interaction", "heavy_rain_flag",
     ]
     features = base_features + [c for c in WEATHER_COLUMNS if c in df.columns]
 
@@ -171,6 +185,18 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
         "time_range": {"min": str(df["time"].min()), "max": str(df["time"].max())},
     }
     metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    # Post-training feature impact report (recall-focused permutation importance)
+    reports_dir = REPORTS_DIR / "feature_analysis"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    perm = permutation_importance(
+        winner["pipeline"], X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=-1
+    )
+    importance_df = pd.DataFrame(
+        {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
+    ).sort_values("importance_mean", ascending=False)
+    importance_df.to_csv(reports_dir / "feature_importance_recall_from_training.csv", index=False)
+
     logger.info("Saved model to %s and metadata to %s", model_file, metadata_file)
 
 
