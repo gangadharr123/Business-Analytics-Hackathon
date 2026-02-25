@@ -243,3 +243,28 @@ python src/01_filter_data.py --input data/data-2025-12.parquet
 ```
 
 The script now also auto-detects common locations (`data/raw` and `data`) and will log which file it selected.
+
+
+
+### Training timeout / loky subprocess warning on Windows
+
+If training finishes model scoring but then prints messages like:
+- `ERROR: This operation returned because the timeout period expired.`
+- `joblib.externals.loky ... Failed to kill subprocesses ... install psutil`
+
+use these fixes:
+
+1. Install/update dependencies (includes `psutil`):
+```bash
+pip install -r requirements.txt
+```
+
+2. Run with safe single-process mode:
+```bash
+set EBS_PARALLEL_JOBS=1
+python src/05_train_ml_model.py
+```
+
+Notes:
+- The pipeline now auto-uses safer parallel settings on Windows.
+- You can still override parallelism with `EBS_PARALLEL_JOBS` if needed.

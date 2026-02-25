@@ -16,7 +16,14 @@ from sklearn.metrics import accuracy_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from config import DELAY_THRESHOLD_MINUTES, ENRICHED_DATA_FILE, REPORTS_DIR, STATION_MAP, WEATHER_COLUMNS
+from config import (
+    DELAY_THRESHOLD_MINUTES,
+    ENRICHED_DATA_FILE,
+    REPORTS_DIR,
+    STATION_MAP,
+    WEATHER_COLUMNS,
+    get_parallel_jobs,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -66,6 +73,8 @@ def split_time_based(df: pd.DataFrame):
 
 
 def run_analysis(input_file: Path, output_dir: Path):
+    safe_jobs = get_parallel_jobs()
+    logger.info("Using parallel jobs: %s", safe_jobs)
     if not input_file.exists():
         raise FileNotFoundError(f"Input file not found: {input_file}")
 
@@ -125,7 +134,7 @@ def run_analysis(input_file: Path, output_dir: Path):
                     min_samples_leaf=8,
                     class_weight={0: 1, 1: 4},
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=safe_jobs,
                 ),
             ),
         ]
@@ -144,7 +153,7 @@ def run_analysis(input_file: Path, output_dir: Path):
     }
     (output_dir / "feature_analysis_metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
-    perm = permutation_importance(pipeline, X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=-1)
+    perm = permutation_importance(pipeline, X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=safe_jobs)
     importance_df = pd.DataFrame(
         {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
     ).sort_values("importance_mean", ascending=False)

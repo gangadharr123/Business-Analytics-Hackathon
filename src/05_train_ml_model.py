@@ -27,6 +27,7 @@ from config import (
     REPORTS_DIR,
     STATION_MAP,
     WEATHER_COLUMNS,
+    get_parallel_jobs,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
@@ -91,6 +92,8 @@ def tune_threshold(y_true: pd.Series, y_prob: np.ndarray):
 
 
 def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MODEL_METADATA_FILE):
+    safe_jobs = get_parallel_jobs()
+    logger.info("Using parallel jobs: %s", safe_jobs)
     if not data_file.exists():
         raise FileNotFoundError(f"Data not found at {data_file}. Run Step 2.")
 
@@ -132,7 +135,7 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
     models = [
         {"name": "Decision Tree", "clf": DecisionTreeClassifier(max_depth=12, min_samples_leaf=20, class_weight="balanced", random_state=42)},
         {"name": "Logistic Regression", "clf": LogisticRegression(max_iter=1500, class_weight="balanced", random_state=42)},
-        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=400, max_depth=24, min_samples_leaf=8, class_weight={0: 1, 1: 4}, random_state=42, n_jobs=-1)},
+        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=400, max_depth=24, min_samples_leaf=8, class_weight={0: 1, 1: 4}, random_state=42, n_jobs=safe_jobs)},
     ]
 
     results = []
@@ -190,7 +193,7 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
     reports_dir = REPORTS_DIR / "feature_analysis"
     reports_dir.mkdir(parents=True, exist_ok=True)
     perm = permutation_importance(
-        winner["pipeline"], X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=-1
+        winner["pipeline"], X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=safe_jobs
     )
     importance_df = pd.DataFrame(
         {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}

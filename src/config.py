@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -70,3 +71,14 @@ DEFAULT_INFERENCE_PAYLOAD = {
     "wind_speed_kmh": 10.0,
     "wind_dir_10m": 200,
 }
+
+
+def get_parallel_jobs(default_windows: int = 1, default_other: int = -1) -> int:
+    """Return safe parallel jobs; override with EBS_PARALLEL_JOBS env var."""
+    raw = os.getenv("EBS_PARALLEL_JOBS")
+    if raw is not None:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return default_windows if os.name == "nt" else default_other

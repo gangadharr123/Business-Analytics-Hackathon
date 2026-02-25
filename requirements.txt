@@ -7,3 +7,4 @@ jupyter==1.1.1
 pyarrow==18.1.0
 joblib==1.4.2
 holidays==0.64
+psutil==6.1.0
