@@ -211,7 +211,7 @@ reports/
 pip install -r requirements.txt
 python src/01_filter_data.py --start 2024-07 --end 2025-12
 python src/02_enrich_data.py
-python src/05_train_ml_model.py
+python src/05_train_ml_model.py --min-precision 0.35 --min-recall 0.55
 python src/06_smart_commute_tool.py
 python src/07_feature_analysis.py --input data/processed/ebs_commute_data_enriched.csv
 ```
@@ -262,7 +262,7 @@ pip install -r requirements.txt
 2. Run with safe single-process mode:
 ```bash
 set EBS_PARALLEL_JOBS=1
-python src/05_train_ml_model.py
+python src/05_train_ml_model.py --min-precision 0.35 --min-recall 0.55
 ```
 
 Notes:
@@ -310,3 +310,20 @@ python src/01_filter_data.py --input-pattern "data-*.parquet" --start 2024-07 --
 ```
 
 If `--input` is provided, it reads that single file; otherwise it uses multi-file mode with the date range.
+
+
+### Balanced threshold tuning (important for hackathon quality)
+
+`05_train_ml_model.py` now tunes the decision threshold using a balanced objective (not recall-only), combining:
+- F1 score
+- balanced accuracy
+- precision
+- recall
+
+You can enforce practical quality floors:
+```bash
+python src/05_train_ml_model.py --min-precision 0.35 --min-recall 0.55
+```
+
+If your model produces too many false alarms, increase `--min-precision` (e.g., 0.40 or 0.45).
+If your model misses too many delays, increase `--min-recall`.

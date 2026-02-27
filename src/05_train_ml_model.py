@@ -14,7 +14,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import accuracy_score, confusion_matrix, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.tree import DecisionTreeClassifier
@@ -79,19 +79,54 @@ def split_time_based(df: pd.DataFrame):
     return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
 
 
-def tune_threshold(y_true: pd.Series, y_prob: np.ndarray):
-    best = {"threshold": 0.5, "accuracy": 0.0, "recall": 0.0, "score": -1.0}
-    for t in np.arange(0.2, 0.81, 0.02):
+def _metrics_from_predictions(y_true: pd.Series, y_pred: np.ndarray) -> dict:
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    accuracy = accuracy_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    specificity = tn / (tn + fp) if (tn + fp) else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    balanced_accuracy = (recall + specificity) / 2
+    return {
+        "tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp),
+        "accuracy": float(accuracy), "recall": float(recall), "precision": float(precision),
+        "specificity": float(specificity), "f1": float(f1), "balanced_accuracy": float(balanced_accuracy),
+    }
+
+
+def tune_threshold(y_true: pd.Series, y_prob: np.ndarray, min_precision: float = 0.35, min_recall: float = 0.55):
+    best = {"threshold": 0.5, "score": -1e9}
+    for t in np.arange(0.05, 0.96, 0.01):
         y_pred = (y_prob >= t).astype(int)
-        acc = accuracy_score(y_true, y_pred)
-        rec = recall_score(y_true, y_pred, zero_division=0)
-        score = rec * 0.7 + acc * 0.3
+        m = _metrics_from_predictions(y_true, y_pred)
+
+        # Balanced objective (avoid recall-only over-alerting)
+        score = (
+            0.35 * m["f1"]
+            + 0.25 * m["balanced_accuracy"]
+            + 0.20 * m["precision"]
+            + 0.20 * m["recall"]
+        )
+
+        # Penalize if below practical alert-quality floors
+        if m["precision"] < min_precision:
+            score -= (min_precision - m["precision"]) * 1.5
+        if m["recall"] < min_recall:
+            score -= (min_recall - m["recall"]) * 1.0
+
         if score > best["score"]:
-            best = {"threshold": float(t), "accuracy": float(acc), "recall": float(rec), "score": float(score)}
+            best = {"threshold": float(t), "score": float(score), **m}
+
     return best
 
 
-def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MODEL_METADATA_FILE):
+def train(
+    data_file=ENRICHED_DATA_FILE,
+    model_file=MODEL_FILE,
+    metadata_file=MODEL_METADATA_FILE,
+    min_precision: float = 0.35,
+    min_recall: float = 0.55,
+):
     safe_jobs = get_parallel_jobs()
     logger.info("Using parallel jobs: %s", safe_jobs)
     if not data_file.exists():
@@ -133,9 +168,9 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
     ])
 
     models = [
-        {"name": "Decision Tree", "clf": DecisionTreeClassifier(max_depth=12, min_samples_leaf=20, class_weight="balanced", random_state=42)},
-        {"name": "Logistic Regression", "clf": LogisticRegression(max_iter=1500, class_weight="balanced", random_state=42)},
-        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=400, max_depth=24, min_samples_leaf=8, class_weight={0: 1, 1: 4}, random_state=42, n_jobs=safe_jobs)},
+        {"name": "Decision Tree", "clf": DecisionTreeClassifier(max_depth=10, min_samples_leaf=80, class_weight="balanced", random_state=42)},
+        {"name": "Logistic Regression", "clf": LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42)},
+        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=500, max_depth=18, min_samples_leaf=20, class_weight="balanced_subsample", random_state=42, n_jobs=safe_jobs)},
     ]
 
     results = []
@@ -143,15 +178,15 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
         pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", m["clf"])])
         pipeline.fit(X_train, y_train)
         y_prob = pipeline.predict_proba(X_test)[:, 1]
-        threshold_info = tune_threshold(y_test, y_prob)
+        threshold_info = tune_threshold(y_test, y_prob, min_precision=min_precision, min_recall=min_recall)
         y_pred = (y_prob >= threshold_info["threshold"]).astype(int)
         auc = roc_auc_score(y_test, y_prob)
-        tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
         logger.info(
-            "%s | accuracy=%.3f recall=%.3f auc=%.3f threshold=%.2f CM=[[%s,%s],[%s,%s]]",
-            m["name"], threshold_info["accuracy"], threshold_info["recall"], auc,
-            threshold_info["threshold"], tn, fp, fn, tp,
+            "%s | acc=%.3f recall=%.3f precision=%.3f bal_acc=%.3f auc=%.3f threshold=%.2f CM=[[%s,%s],[%s,%s]]",
+            m["name"], threshold_info["accuracy"], threshold_info["recall"], threshold_info["precision"],
+            threshold_info["balanced_accuracy"], auc, threshold_info["threshold"],
+            threshold_info["tn"], threshold_info["fp"], threshold_info["fn"], threshold_info["tp"],
         )
 
         results.append(
@@ -161,12 +196,15 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
                 "threshold": threshold_info["threshold"],
                 "accuracy": threshold_info["accuracy"],
                 "recall": threshold_info["recall"],
+                "precision": threshold_info["precision"],
+                "balanced_accuracy": threshold_info["balanced_accuracy"],
+                "f1": threshold_info["f1"],
                 "auc": float(auc),
                 "score": threshold_info["score"],
             }
         )
 
-    winner = sorted(results, key=lambda r: r["score"], reverse=True)[0]
+    winner = sorted(results, key=lambda r: (r["score"], r["auc"]), reverse=True)[0]
     logger.info("Winner: %s", winner["name"])
 
     model_file.parent.mkdir(parents=True, exist_ok=True)
@@ -181,7 +219,7 @@ def train(data_file=ENRICHED_DATA_FILE, model_file=MODEL_FILE, metadata_file=MOD
 
     metadata = {
         "winner": winner["name"],
-        "metrics": {"accuracy": winner["accuracy"], "recall": winner["recall"], "auc": winner["auc"], "score": winner["score"]},
+        "metrics": {"accuracy": winner["accuracy"], "recall": winner["recall"], "precision": winner["precision"], "balanced_accuracy": winner["balanced_accuracy"], "f1": winner["f1"], "auc": winner["auc"], "score": winner["score"]},
         "features": features,
         "train_rows": int(len(train_df)),
         "test_rows": int(len(test_df)),
@@ -208,5 +246,13 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, default=str(ENRICHED_DATA_FILE))
     parser.add_argument("--model-output", type=str, default=str(MODEL_FILE))
     parser.add_argument("--metadata-output", type=str, default=str(MODEL_METADATA_FILE))
+    parser.add_argument("--min-precision", type=float, default=0.35)
+    parser.add_argument("--min-recall", type=float, default=0.55)
     args = parser.parse_args()
-    train(data_file=Path(args.input), model_file=Path(args.model_output), metadata_file=Path(args.metadata_output))
+    train(
+        data_file=Path(args.input),
+        model_file=Path(args.model_output),
+        metadata_file=Path(args.metadata_output),
+        min_precision=args.min_precision,
+        min_recall=args.min_recall,
+    )
