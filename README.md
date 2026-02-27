@@ -327,3 +327,18 @@ python src/05_train_ml_model.py --min-precision 0.35 --min-recall 0.55
 
 If your model produces too many false alarms, increase `--min-precision` (e.g., 0.40 or 0.45).
 If your model misses too many delays, increase `--min-recall`.
+
+
+### Model reliability upgrades (critical fixes)
+
+- **Train / Validation / Test split** is now used in `05_train_ml_model.py`:
+  - Train = fit models
+  - Validation = tune threshold
+  - Test = final unbiased evaluation
+- **Smoothed target encoding** is used for `station_hour_risk` with additive smoothing (`--target-encoding-alpha`) to prevent overfitting on rare station-hour pairs.
+- **Lag features** were added (`lag1_is_delayed_station`, `lag1_delay_min_station`, `rolling_delay_ratio_6_station`) to capture delay contagion effects.
+
+Example advanced training command:
+```bash
+python src/05_train_ml_model.py --min-precision 0.40 --min-recall 0.60 --target-encoding-alpha 20
+```
