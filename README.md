@@ -13,13 +13,13 @@ Build a data-driven model that predicts the **probability of delay** for DB trip
 
 ## 1) What data do we have? (very clear)
 
-This project currently uses a **pilot window (December 2025)** to validate logic before scaling to a larger period.
+This project now supports **multi-month historical windows**. Current default run uses **Jul 2024 to Dec 2025** parquet files to improve reliability and seasonality coverage.
 
 ### Data sources in the pipeline
 
 | Source | File | Purpose |
 |---|---|---|
-| Raw DB movement data | `data/raw/data-2025-12.parquet` | Base rail records: station, timestamp, delay, train type, destination |
+| Raw DB movement data | `data/raw/data-YYYY-MM.parquet` (Jul 2024..Dec 2025) | Monthly base rail records: station, timestamp, delay, train type, destination |
 | Construction disruptions | `data/construction.csv` | Infrastructure work periods and impact level |
 | Strike events | `data/strikes.csv` | Strike date ranges and rail-relevant event text |
 | Weather observations | `data/weather.csv` | Hourly weather (rain, wind, temperature, etc.) |
@@ -209,7 +209,7 @@ reports/
 
 ```bash
 pip install -r requirements.txt
-python src/01_filter_data.py
+python src/01_filter_data.py --start 2024-07 --end 2025-12
 python src/02_enrich_data.py
 python src/05_train_ml_model.py
 python src/06_smart_commute_tool.py
@@ -298,3 +298,15 @@ python src/08_studies_and_decision_support.py --input data/processed/ebs_commute
 - `reports/key_studies/study3_buffer_recommendations.csv`
 
 These files are presentation-ready tables for the project key questions.
+
+
+### Multi-file mode for raw parquet data
+
+`01_filter_data.py` can automatically read all monthly parquet files in a range.
+
+Example:
+```bash
+python src/01_filter_data.py --input-pattern "data-*.parquet" --start 2024-07 --end 2025-12
+```
+
+If `--input` is provided, it reads that single file; otherwise it uses multi-file mode with the date range.
