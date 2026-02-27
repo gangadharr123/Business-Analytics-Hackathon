@@ -185,12 +185,17 @@ def train(
     ]
     features = base_features + [c for c in WEATHER_COLUMNS if c in df.columns]
 
-    X_train = train_df[features]
-    y_train = train_df["is_delayed"]
-    X_val = val_df[features]
-    y_val = val_df["is_delayed"]
-    X_test = test_df[features]
-    y_test = test_df["is_delayed"]
+    X_train = train_df[features].copy()
+    y_train = train_df["is_delayed"].astype("int8")
+    X_val = val_df[features].copy()
+    y_val = val_df["is_delayed"].astype("int8")
+    X_test = test_df[features].copy()
+    y_test = test_df["is_delayed"].astype("int8")
+
+    # Downcast numeric feature columns to reduce memory pressure on Windows/Python 3.14
+    for _df in (X_train, X_val, X_test):
+        num_cols_tmp = _df.select_dtypes(include=["float64", "int64"]).columns
+        _df[num_cols_tmp] = _df[num_cols_tmp].apply(pd.to_numeric, downcast="float")
 
     cat_cols = ["weekday", "train_type", "station_id"]
     num_cols = [c for c in features if c not in cat_cols]
@@ -203,41 +208,49 @@ def train(
     models = [
         {"name": "Decision Tree", "clf": DecisionTreeClassifier(max_depth=10, min_samples_leaf=80, class_weight="balanced", random_state=42)},
         {"name": "Logistic Regression", "clf": LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42)},
-        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=500, max_depth=18, min_samples_leaf=20, class_weight="balanced_subsample", random_state=42, n_jobs=safe_jobs)},
+        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=500, max_depth=18, min_samples_leaf=20, class_weight="balanced", random_state=42, n_jobs=safe_jobs)},
     ]
 
     results = []
     for m in models:
         pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", m["clf"])])
-        pipeline.fit(X_train, y_train)
+        try:
+            pipeline.fit(X_train, y_train)
 
-        y_val_prob = pipeline.predict_proba(X_val)[:, 1]
-        threshold_info = tune_threshold(y_val, y_val_prob, min_precision=min_precision, min_recall=min_recall)
+            y_val_prob = pipeline.predict_proba(X_val)[:, 1]
+            threshold_info = tune_threshold(y_val, y_val_prob, min_precision=min_precision, min_recall=min_recall)
 
-        y_test_prob = pipeline.predict_proba(X_test)[:, 1]
-        y_test_pred = (y_test_prob >= threshold_info["threshold"]).astype(int)
-        test_metrics = _metrics_from_predictions(y_test, y_test_pred)
-        auc_test = roc_auc_score(y_test, y_test_prob)
+            y_test_prob = pipeline.predict_proba(X_test)[:, 1]
+            y_test_pred = (y_test_prob >= threshold_info["threshold"]).astype(int)
+            test_metrics = _metrics_from_predictions(y_test, y_test_pred)
+            auc_test = roc_auc_score(y_test, y_test_prob)
 
-        logger.info(
-            "%s | VAL(thr=%.2f, score=%.3f, rec=%.3f, prec=%.3f) | TEST(acc=%.3f rec=%.3f prec=%.3f bal_acc=%.3f auc=%.3f CM=[[%s,%s],[%s,%s]])",
-            m["name"], threshold_info["threshold"], threshold_info["score"], threshold_info["recall"], threshold_info["precision"],
-            test_metrics["accuracy"], test_metrics["recall"], test_metrics["precision"], test_metrics["balanced_accuracy"], auc_test,
-            test_metrics["tn"], test_metrics["fp"], test_metrics["fn"], test_metrics["tp"],
-        )
+            logger.info(
+                "%s | VAL(thr=%.2f, score=%.3f, rec=%.3f, prec=%.3f) | TEST(acc=%.3f rec=%.3f prec=%.3f bal_acc=%.3f auc=%.3f CM=[[%s,%s],[%s,%s]])",
+                m["name"], threshold_info["threshold"], threshold_info["score"], threshold_info["recall"], threshold_info["precision"],
+                test_metrics["accuracy"], test_metrics["recall"], test_metrics["precision"], test_metrics["balanced_accuracy"], auc_test,
+                test_metrics["tn"], test_metrics["fp"], test_metrics["fn"], test_metrics["tp"],
+            )
 
-        results.append(
-            {
-                "name": m["name"],
-                "pipeline": pipeline,
-                "threshold": threshold_info["threshold"],
-                "val_score": threshold_info["score"],
-                "val_recall": threshold_info["recall"],
-                "val_precision": threshold_info["precision"],
-                "test_metrics": test_metrics,
-                "auc": float(auc_test),
-            }
-        )
+            results.append(
+                {
+                    "name": m["name"],
+                    "pipeline": pipeline,
+                    "threshold": threshold_info["threshold"],
+                    "val_score": threshold_info["score"],
+                    "val_recall": threshold_info["recall"],
+                    "val_precision": threshold_info["precision"],
+                    "test_metrics": test_metrics,
+                    "auc": float(auc_test),
+                }
+            )
+        except MemoryError as exc:
+            logger.error("%s failed due to memory error and will be skipped: %s", m["name"], exc)
+        except Exception as exc:
+            logger.error("%s failed and will be skipped: %s", m["name"], exc)
+
+    if not results:
+        raise RuntimeError("All models failed during training. Try increasing memory, reducing dataset size, or setting EBS_PARALLEL_JOBS=1.")
 
     winner = sorted(results, key=lambda r: (r["val_score"], r["auc"]), reverse=True)[0]
     logger.info("Winner (based on validation score): %s", winner["name"])

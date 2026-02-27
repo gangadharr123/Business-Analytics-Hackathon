@@ -342,3 +342,16 @@ Example advanced training command:
 ```bash
 python src/05_train_ml_model.py --min-precision 0.40 --min-recall 0.60 --target-encoding-alpha 20
 ```
+
+
+### Random Forest memory crash (`ArrayMemoryError`) on Windows
+
+If you see errors during Random Forest training such as `numpy._core._exceptions._ArrayMemoryError`, the training script now auto-handles this by skipping failed models and continuing with the remaining candidates.
+
+Additional tips:
+```bash
+set EBS_PARALLEL_JOBS=1
+python src/05_train_ml_model.py --min-precision 0.40 --min-recall 0.60
+```
+
+You can also reduce memory pressure by closing other apps and training in a fresh terminal session.
