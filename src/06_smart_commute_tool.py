@@ -12,6 +12,17 @@ import pandas as pd
 from config import DEFAULT_INFERENCE_PAYLOAD, MODEL_FILE
 
 
+def recommend_buffer_minutes(risk_probability: float) -> int:
+    """Simple decision-support rule for commuter planning buffer."""
+    if risk_probability >= 0.60:
+        return 15
+    if risk_probability >= 0.40:
+        return 10
+    if risk_probability >= 0.25:
+        return 7
+    return 5
+
+
 class SmartCommuteAdvisor:
     def __init__(self, model_filename: str | None = None):
         self.model_path = Path(model_filename) if model_filename else MODEL_FILE
@@ -66,10 +77,11 @@ class SmartCommuteAdvisor:
 
         prob = float(self.model.predict_proba(input_data)[0][1])
         label = int(prob >= self.threshold)
-        return prob, label
+        buffer_min = recommend_buffer_minutes(prob)
+        return prob, label, buffer_min
 
 
 if __name__ == "__main__":
     advisor = SmartCommuteAdvisor()
-    risk, pred = advisor.get_risk("Frankfurt", "Burg", "Friday", 18)
-    print(f"Risk: {risk:.1%} | Predicted delayed={bool(pred)} | threshold={advisor.threshold:.2f}")
+    risk, pred, buffer_min = advisor.get_risk("Frankfurt", "Burg", "Friday", 18)
+    print(f"Risk: {risk:.1%} | Predicted delayed={bool(pred)} | threshold={advisor.threshold:.2f} | Suggested buffer={buffer_min} min")

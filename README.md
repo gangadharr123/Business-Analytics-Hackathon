@@ -268,3 +268,33 @@ python src/05_train_ml_model.py
 Notes:
 - The pipeline now auto-uses safer parallel settings on Windows.
 - You can still override parallelism with `EBS_PARALLEL_JOBS` if needed.
+
+
+## 11) Key objectives and studies (for presentation)
+
+### Objective 1: Analyze delays and identify key drivers
+We run descriptive + factor studies to answer:
+- Probability of delays by time/day in Frankfurt → Rheingau corridor
+- Probability of delays for a specific train proxy (train type + station + hour)
+- Overall reliability of public transport in this area
+- Factors associated with higher delay probability
+
+### Objective 2: Use insights in a decision support system
+We convert those insights into commuter guidance:
+- model-based delay risk (`06_smart_commute_tool.py`)
+- suggested planning buffer minutes based on predicted risk
+- day/hour-level buffer recommendation table from historical data
+
+### Key studies command
+```bash
+python src/08_studies_and_decision_support.py --input data/processed/ebs_commute_data_enriched.csv
+```
+
+### Outputs generated
+- `reports/key_studies/study1_delay_probability_by_time_day.csv`
+- `reports/key_studies/study1_delay_probability_by_train_proxy.csv`
+- `reports/key_studies/study1_reliability_summary.json`
+- `reports/key_studies/study2_factor_effects.csv`
+- `reports/key_studies/study3_buffer_recommendations.csv`
+
+These files are presentation-ready tables for the project key questions.
