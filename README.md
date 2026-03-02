@@ -357,3 +357,23 @@ python src/05_train_ml_model.py --min-precision 0.40 --min-recall 0.60
 ```
 
 You can also reduce memory pressure by closing other apps and training in a fresh terminal session.
+
+
+## 12) Key questions -> exact output files
+
+Run:
+```bash
+python src/08_studies_and_decision_support.py --input data/processed/ebs_commute_data_enriched.csv
+```
+
+This produces direct answers to hackathon questions:
+- **Q1** Probability of delays by time/day: `reports/key_studies/q1_delay_probability_by_time_day.csv`
+- **Q2** Probability of delays for a specific train (or best available train proxy): `reports/key_studies/q2_delay_probability_specific_train.csv`
+- **Q3** Reliability in corridor: `reports/key_studies/q3_reliability_summary.json`
+- **Q4** Factors affecting delays: `reports/key_studies/q4_factors_affecting_delays.csv`
+- **Q5** Buffer planning guidance: `reports/key_studies/q5_buffer_planning_recommendations.csv`
+
+A human-readable summary for presentation is also generated:
+- `reports/key_studies/key_studies_summary.md`
+
+Use `--all-areas` if you want to include non-corridor stations as well.
