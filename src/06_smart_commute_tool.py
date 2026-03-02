@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import math
 from pathlib import Path
 
 import joblib
@@ -65,12 +64,7 @@ class SmartCommuteAdvisor:
             "station_id": s_id,
             "direction": direction,
             "month": datetime.datetime.now().month,
-            "day_of_month": datetime.datetime.now().day,
-            "hour_sin": math.sin(2 * math.pi * hour / 24),
-            "hour_cos": math.cos(2 * math.pi * hour / 24),
             "is_weekend": 1 if day.lower() in {"saturday", "sunday"} else 0,
-            "is_peak_hour": 1 if hour in [6, 7, 8, 9, 16, 17, 18, 19] else 0,
-            "station_hour_risk": 0.25,
         }
         base.update(DEFAULT_INFERENCE_PAYLOAD)
         input_data = pd.DataFrame([{k: base.get(k, 0) for k in self.feature_columns}])
