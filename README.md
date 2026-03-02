@@ -34,7 +34,8 @@ Core paths and constants are centralized in `src/config.py`.
 3. **Train model** – `src/05_train_ml_model.py`
    - uses a time-based train/validation/test split,
    - compares Decision Tree, Logistic Regression, Random Forest,
-   - tunes threshold with an objective focused on **accuracy + precision**.
+   - tunes threshold with an objective focused on **accuracy + precision** with a small recall floor to avoid predicting only the majority class.
+   - exports `reports/feature_analysis/threshold_scan_by_model.csv` for submission-ready threshold transparency.
 
 4. **Inference tool** – `src/06_smart_commute_tool.py`
    - outputs delay probability, predicted class, and suggested buffer minutes.
@@ -74,7 +75,7 @@ Primary focus:
 - **Accuracy**
 - **Precision**
 
-The threshold tuning objective in training uses a weighted score that prioritizes these metrics.
+The threshold tuning objective in training uses a weighted score that prioritizes these metrics, while still enforcing a small minimum recall to avoid degenerate all-negative predictions.
 
 ---
 
@@ -85,7 +86,7 @@ From the repository root:
 ```bash
 python src/01_filter_data.py
 python src/02_enrich_data.py
-python src/05_train_ml_model.py
+python src/05_train_ml_model.py --min-precision 0.40 --min-recall 0.10
 python src/06_smart_commute_tool.py
 python src/07_feature_analysis.py
 python src/08_studies_and_decision_support.py
@@ -99,3 +100,11 @@ python src/08_studies_and_decision_support.py
 - Metadata: `models/delay_model_v3_metadata.json`
 - Feature analysis reports: `reports/feature_analysis/`
 - Study reports: `reports/key_studies/`
+
+
+## Submission-ready checklist
+
+- Run the full pipeline in order from the **Run Commands** section.
+- Verify `models/delay_model_v3_metadata.json` includes both precision and recall above zero on test data.
+- Verify `reports/feature_analysis/threshold_scan_by_model.csv` exists and pick the operating threshold based on your project tradeoff.
+- Include `reports/feature_analysis/top10_features_from_training.csv` and `reports/feature_analysis/top10_features_precision.csv` in your appendix/report.
