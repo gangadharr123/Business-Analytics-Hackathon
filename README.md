@@ -82,7 +82,7 @@ The current corridor covers key Frankfurt ↔ Rheingau/EBS-related stations:
 ## 3) What does “delayed” mean?
 
 A trip is marked as delayed if:
-- `delay_in_min > 3`
+- `delay_in_min > 10`
 
 This threshold is stored in `DELAY_THRESHOLD_MINUTES` in `src/config.py`.
 
@@ -168,6 +168,8 @@ Run `07_feature_analysis.py` to produce:
 - `reports/feature_analysis/feature_analysis_metrics.json`
 - `reports/feature_analysis/feature_importance_recall.csv`
 - `reports/feature_analysis/weather_feature_importance.csv`
+- `reports/feature_analysis/top10_features_recall.csv` (Top 10 ranked features)
+- `reports/feature_analysis/top10_features_from_training.csv` (Top 10 ranked features from final training run)
 
 Training also writes:
 - `reports/feature_analysis/feature_importance_recall_from_training.csv`

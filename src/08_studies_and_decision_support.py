@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from config import ENRICHED_DATA_FILE, REPORTS_DIR
+from config import DELAY_THRESHOLD_MINUTES, ENRICHED_DATA_FILE, REPORTS_DIR
 
 
 def load_data(path: Path) -> pd.DataFrame:
@@ -23,7 +23,7 @@ def load_data(path: Path) -> pd.DataFrame:
 
     df["time"] = pd.to_datetime(df["time"], errors="coerce")
     df = df.dropna(subset=["time", "delay_in_min"]).copy()
-    df["is_delayed"] = (df["delay_in_min"] > 3).astype(int)
+    df["is_delayed"] = (df["delay_in_min"] > DELAY_THRESHOLD_MINUTES).astype(int)
     return df
 
 

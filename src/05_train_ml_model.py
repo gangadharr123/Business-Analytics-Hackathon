@@ -287,6 +287,9 @@ def train(
         {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
     ).sort_values("importance_mean", ascending=False)
     importance_df.to_csv(reports_dir / "feature_importance_recall_from_training.csv", index=False)
+    top10_df = importance_df.head(10).copy()
+    top10_df.to_csv(reports_dir / "top10_features_from_training.csv", index=False)
+    logger.info("Top 10 features (training): %s", ", ".join(top10_df["feature"].tolist()))
 
     logger.info("Saved model to %s and metadata to %s", model_file, metadata_file)
 

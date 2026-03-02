@@ -30,7 +30,7 @@ CONSTRUCTION_FILE = DATA_DIR / "construction.csv"
 STRIKES_FILE = DATA_DIR / "strikes.csv"
 WEATHER_FILE = DATA_DIR / "weather.csv"
 
-DELAY_THRESHOLD_MINUTES = 3
+DELAY_THRESHOLD_MINUTES = 10
 
 TARGET_STATIONS = [
     "Frankfurt(Main)Hbf", "Frankfurt-Höchst", "Wiesbaden Hbf",

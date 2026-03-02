@@ -158,6 +158,9 @@ def run_analysis(input_file: Path, output_dir: Path):
         {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
     ).sort_values("importance_mean", ascending=False)
     importance_df.to_csv(output_dir / "feature_importance_recall.csv", index=False)
+    top10_df = importance_df.head(10).copy()
+    top10_df.to_csv(output_dir / "top10_features_recall.csv", index=False)
+    logger.info("Top 10 features (analysis): %s", ", ".join(top10_df["feature"].tolist()))
 
     # Also provide grouped weather impact summary
     weather_subset = importance_df[importance_df["feature"].isin(WEATHER_COLUMNS + [
