@@ -46,40 +46,14 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     df["station_id"] = df["station_name"].map(STATION_MAP)
     df = df.dropna(subset=["station_id"])
 
-    # additional feature engineering
+    # Keep feature engineering intentionally simple.
     df["direction"] = df["final_destination_station"].apply(get_direction)
     df["month"] = df["time"].dt.month
-    df["day_of_month"] = df["time"].dt.day
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
     df["is_weekend"] = (df["time"].dt.dayofweek >= 5).astype(int)
-    df["is_peak_hour"] = df["hour"].isin([6, 7, 8, 9, 16, 17, 18, 19]).astype(int)
 
     for c in WEATHER_COLUMNS:
         if c not in df.columns:
             df[c] = 0
-
-    # Weather-focused feature engineering
-    df["adverse_weather_score"] = (
-        1.5 * df["precip_mm"].clip(lower=0)
-        + 1.0 * df["rain_mm"].clip(lower=0)
-        + 2.0 * df["snow_cm"].clip(lower=0)
-        + 0.03 * df["wind_gusts_kmh"].clip(lower=0)
-    )
-    df["temp_extreme_flag"] = ((df["temp_c"] <= -2) | (df["temp_c"] >= 30)).astype(int)
-    df["wind_precip_interaction"] = (df["wind_speed_kmh"].clip(lower=0) * df["precip_mm"].clip(lower=0))
-    df["heavy_rain_flag"] = (df["rain_mm"] >= 2.0).astype(int)
-
-    # Lag features (causal, station-level)
-    df = df.sort_values(["station_id", "time"]).reset_index(drop=True)
-    df["lag1_delay_min_station"] = df.groupby("station_id")["delay_in_min"].shift(1).fillna(0)
-    df["lag1_is_delayed_station"] = df.groupby("station_id")["is_delayed"].shift(1).fillna(0)
-    df["rolling_delay_ratio_6_station"] = (
-        df.groupby("station_id")["is_delayed"]
-        .apply(lambda s: s.shift(1).rolling(window=6, min_periods=1).mean())
-        .reset_index(level=0, drop=True)
-        .fillna(0)
-    )
 
     return df.sort_values("time").reset_index(drop=True)
 
@@ -110,57 +84,27 @@ def _metrics_from_predictions(y_true: pd.Series, y_pred: np.ndarray) -> dict:
     }
 
 
-def tune_threshold(y_true: pd.Series, y_prob: np.ndarray, min_precision: float = 0.35, min_recall: float = 0.55):
+def tune_threshold(y_true: pd.Series, y_prob: np.ndarray, min_precision: float = 0.50):
     best = {"threshold": 0.5, "score": -1e9}
     for t in np.arange(0.05, 0.96, 0.01):
         y_pred = (y_prob >= t).astype(int)
         m = _metrics_from_predictions(y_true, y_pred)
 
-        score = (
-            0.35 * m["f1"]
-            + 0.25 * m["balanced_accuracy"]
-            + 0.20 * m["precision"]
-            + 0.20 * m["recall"]
-        )
+        score = 0.55 * m["accuracy"] + 0.35 * m["precision"] + 0.10 * m["f1"]
 
         if m["precision"] < min_precision:
             score -= (min_precision - m["precision"]) * 1.5
-        if m["recall"] < min_recall:
-            score -= (min_recall - m["recall"]) * 1.0
-
         if score > best["score"]:
             best = {"threshold": float(t), "score": float(score), **m}
 
     return best
 
 
-def add_smoothed_station_hour_risk(
-    train_df: pd.DataFrame,
-    val_df: pd.DataFrame,
-    test_df: pd.DataFrame,
-    alpha: float,
-):
-    global_delay_rate = float(train_df["is_delayed"].mean())
-    agg = (
-        train_df.groupby(["station_id", "hour"])["is_delayed"]
-        .agg(["mean", "count"])
-        .rename(columns={"mean": "local_mean", "count": "n"})
-    )
-    agg["smoothed"] = (agg["local_mean"] * agg["n"] + global_delay_rate * alpha) / (agg["n"] + alpha)
-    risk_map = agg["smoothed"]
-
-    train_df["station_hour_risk"] = train_df.set_index(["station_id", "hour"]).index.map(risk_map).fillna(global_delay_rate)
-    val_df["station_hour_risk"] = val_df.set_index(["station_id", "hour"]).index.map(risk_map).fillna(global_delay_rate)
-    test_df["station_hour_risk"] = test_df.set_index(["station_id", "hour"]).index.map(risk_map).fillna(global_delay_rate)
-
-
 def train(
     data_file=ENRICHED_DATA_FILE,
     model_file=MODEL_FILE,
     metadata_file=MODEL_METADATA_FILE,
-    min_precision: float = 0.35,
-    min_recall: float = 0.55,
-    target_encoding_alpha: float = 20.0,
+    min_precision: float = 0.50,
 ):
     safe_jobs = get_parallel_jobs()
     logger.info("Using parallel jobs: %s", safe_jobs)
@@ -174,14 +118,9 @@ def train(
 
     df = prepare_features(df)
     train_df, val_df, test_df = split_time_based_three(df)
-    add_smoothed_station_hour_risk(train_df, val_df, test_df, alpha=target_encoding_alpha)
-
     base_features = [
         "weekday", "hour", "train_type", "station_id", "direction",
-        "is_holiday", "construction_impact", "strike_impact", "month", "day_of_month",
-        "hour_sin", "hour_cos", "is_weekend", "is_peak_hour", "station_hour_risk",
-        "adverse_weather_score", "temp_extreme_flag", "wind_precip_interaction", "heavy_rain_flag",
-        "lag1_delay_min_station", "lag1_is_delayed_station", "rolling_delay_ratio_6_station",
+        "is_holiday", "construction_impact", "strike_impact", "month", "is_weekend",
     ]
     features = base_features + [c for c in WEATHER_COLUMNS if c in df.columns]
 
@@ -206,9 +145,9 @@ def train(
     ])
 
     models = [
-        {"name": "Decision Tree", "clf": DecisionTreeClassifier(max_depth=10, min_samples_leaf=80, class_weight="balanced", random_state=42)},
-        {"name": "Logistic Regression", "clf": LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42)},
-        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=500, max_depth=18, min_samples_leaf=20, class_weight="balanced", random_state=42, n_jobs=safe_jobs)},
+        {"name": "Decision Tree", "clf": DecisionTreeClassifier(max_depth=8, min_samples_leaf=80, random_state=42)},
+        {"name": "Logistic Regression", "clf": LogisticRegression(max_iter=2000, random_state=42)},
+        {"name": "Random Forest", "clf": RandomForestClassifier(n_estimators=300, max_depth=14, min_samples_leaf=20, random_state=42, n_jobs=safe_jobs)},
     ]
 
     results = []
@@ -218,7 +157,7 @@ def train(
             pipeline.fit(X_train, y_train)
 
             y_val_prob = pipeline.predict_proba(X_val)[:, 1]
-            threshold_info = tune_threshold(y_val, y_val_prob, min_precision=min_precision, min_recall=min_recall)
+            threshold_info = tune_threshold(y_val, y_val_prob, min_precision=min_precision)
 
             y_test_prob = pipeline.predict_proba(X_test)[:, 1]
             y_test_pred = (y_test_prob >= threshold_info["threshold"]).astype(int)
@@ -274,19 +213,18 @@ def train(
         "val_rows": int(len(val_df)),
         "test_rows": int(len(test_df)),
         "time_range": {"min": str(df["time"].min()), "max": str(df["time"].max())},
-        "target_encoding_alpha": target_encoding_alpha,
     }
     metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     reports_dir = REPORTS_DIR / "feature_analysis"
     reports_dir.mkdir(parents=True, exist_ok=True)
     perm = permutation_importance(
-        winner["pipeline"], X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=safe_jobs
+        winner["pipeline"], X_test, y_test, scoring="precision", n_repeats=8, random_state=42, n_jobs=safe_jobs
     )
     importance_df = pd.DataFrame(
         {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
     ).sort_values("importance_mean", ascending=False)
-    importance_df.to_csv(reports_dir / "feature_importance_recall_from_training.csv", index=False)
+    importance_df.to_csv(reports_dir / "feature_importance_precision_from_training.csv", index=False)
     top10_df = importance_df.head(10).copy()
     top10_df.to_csv(reports_dir / "top10_features_from_training.csv", index=False)
     logger.info("Top 10 features (training): %s", ", ".join(top10_df["feature"].tolist()))
@@ -299,15 +237,11 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, default=str(ENRICHED_DATA_FILE))
     parser.add_argument("--model-output", type=str, default=str(MODEL_FILE))
     parser.add_argument("--metadata-output", type=str, default=str(MODEL_METADATA_FILE))
-    parser.add_argument("--min-precision", type=float, default=0.35)
-    parser.add_argument("--min-recall", type=float, default=0.55)
-    parser.add_argument("--target-encoding-alpha", type=float, default=20.0)
+    parser.add_argument("--min-precision", type=float, default=0.50)
     args = parser.parse_args()
     train(
         data_file=Path(args.input),
         model_file=Path(args.model_output),
         metadata_file=Path(args.metadata_output),
         min_precision=args.min_precision,
-        min_recall=args.min_recall,
-        target_encoding_alpha=args.target_encoding_alpha,
     )
