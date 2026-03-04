@@ -6,7 +6,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-# Setup path to import our custom tool
+# Add local src/ path so Streamlit can import project modules when launched from repo root.
 current_dir = Path(__file__).parent
 sys.path.append(str(current_dir))
 from config import TARGET_STATIONS
@@ -14,10 +14,10 @@ import importlib
 smart_tool = importlib.import_module("06_smart_commute_tool")
 SmartCommuteAdvisor = smart_tool.SmartCommuteAdvisor
 
-# --- PAGE CONFIG ---
+# --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="EBS Commute Advisor", page_icon="🚆", layout="centered")
 
-# --- LOAD ML MODEL ---
+# --- MODEL LOADING ---
 @st.cache_resource
 def load_advisor():
     return SmartCommuteAdvisor()
@@ -32,7 +32,7 @@ except Exception as e:
 st.title("🎓 EBS Smart Commute Advisor")
 st.markdown("Never face the Professor's *Soul Stare*. Enter your class details below to get an AI-powered travel recommendation.")
 
-# --- UI INPUTS ---
+# --- USER INPUTS ---
 with st.form("commute_form"):
     col1, col2 = st.columns(2)
     
@@ -47,27 +47,27 @@ with st.form("commute_form"):
     st.markdown("---")
     exam_mode = st.checkbox("🚨 I have a critical Exam / Presentation today (Low Risk Tolerance)", value=False)
     
-    # NEW: Toggle for crowd events
+    # Optional context flag for large public events that can increase dwell times.
     event_mode = st.checkbox("🏟️ Major Event Today (e.g., Match, Festival, Trade Fair)", value=False)
     
     submitted = st.form_submit_button("Find My Train 🔍")
 
-# --- LOGIC & OUTPUT ---
+# --- PREDICTION LOGIC & OUTPUT ---
 if submitted:
     class_hour = class_time.hour
     
-    # Read the event flag from the UI
+    # Convert checkbox state to the binary feature expected by the model.
     event_flag = 1 if event_mode else 0
     
-    # Reverse-Route Planning: Check the train arriving ~1 hour before class, and ~2 hours before
+    # Evaluate two candidate departures that arrive roughly 1h and 2h before class.
     opt1_hour = class_hour - 1 if class_hour >= 1 else 23
     opt2_hour = class_hour - 2 if class_hour >= 2 else 22
     
-    # Get ML Predictions (passing the event flag)
+    # Score both options with identical contextual inputs.
     prob1, label1, buf1, feat1 = advisor.get_risk(source, dest, day, opt1_hour, has_event=event_flag)
     prob2, label2, buf2, feat2 = advisor.get_risk(source, dest, day, opt2_hour, has_event=event_flag)
     
-    # Dynamic Exam Mode Threshold
+    # Lower tolerance when users mark exam/presentation mode.
     safe_threshold = 0.25 if exam_mode else 0.40
     
     st.header("📋 AI Recommendation")
@@ -99,7 +99,7 @@ if submitted:
             st.warning("💨 **High Winds:** Deutsche Bahn enforces speed restrictions during heavy gusts.")
             factors_found = True
             
-        # NEW: Explaining the Event Surge to the user
+        # Explain event-based risk when the feature is active.
         if target_feat.get("has_event") == 1:
             st.warning("🎟️ **Crowd Surge:** Major events dramatically increase boarding dwell times, causing localized micro-delays.")
             factors_found = True

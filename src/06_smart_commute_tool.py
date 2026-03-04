@@ -45,7 +45,7 @@ class SmartCommuteAdvisor:
         if "rudesheim" in name_l or "rüdesheim" in name_l: return 8
         return 2
 
-    # NEW: Added has_event argument to the signature
+    # Include contextual event information so inference mirrors training features.
     def get_risk(self, source: str, dest: str, day: str, hour: int, train_type: str = "RB", has_event: int = 0):
         s_id = self._get_station_id(source)
         d_id = self._get_station_id(dest)
@@ -60,11 +60,11 @@ class SmartCommuteAdvisor:
             "month": datetime.datetime.now().month,
             "is_weekend": 1 if day.lower() in {"saturday", "sunday"} else 0,
             "is_rush_hour": 1 if hour in [7, 8, 9, 16, 17, 18] else 0,
-            "has_event": has_event,  # <--- Added to the payload
+            "has_event": has_event,
         }
         base.update(DEFAULT_INFERENCE_PAYLOAD)
         
-        # Dynamic weather flags
+        # Derive compact weather risk indicators consumed by the trained model.
         base["is_freezing"] = 1 if base.get("temp_c", 0) <= 0 else 0
         base["has_precipitation"] = 1 if (base.get("precip_mm", 0) > 0 or base.get("rain_mm", 0) > 0 or base.get("snow_cm", 0) > 0) else 0
         base["high_winds"] = 1 if base.get("wind_gusts_kmh", 0) >= 40 else 0
