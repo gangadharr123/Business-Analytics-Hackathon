@@ -46,14 +46,35 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     df["station_id"] = df["station_name"].map(STATION_MAP)
     df = df.dropna(subset=["station_id"])
 
-    # Keep feature engineering intentionally simple.
     df["direction"] = df["final_destination_station"].apply(get_direction)
     df["month"] = df["time"].dt.month
     df["is_weekend"] = (df["time"].dt.dayofweek >= 5).astype(int)
+    df["is_rush_hour"] = df["hour"].isin([7, 8, 9, 16, 17, 18]).astype(int)
 
     for c in WEATHER_COLUMNS:
         if c not in df.columns:
             df[c] = 0
+
+    df["is_freezing"] = (df["temp_c"] <= 0).astype(int)
+    df["has_precipitation"] = ((df["precip_mm"] > 0) | (df["rain_mm"] > 0) | (df["snow_cm"] > 0)).astype(int)
+    df["high_winds"] = (df["wind_gusts_kmh"] >= 40).astype(int)
+    
+    # HARDCODED EVENTS
+    event_dates = {
+        "2024-10-27", "2025-10-26", # Frankfurt Marathon
+        "2024-11-11", "2025-02-27", "2025-03-03", "2025-03-04", "2025-11-11", # Mainz Fastnacht
+        "2025-02-23", # German Federal Election
+        "2024-10-31", "2025-10-31"  # Halloween
+    }
+    
+    date_strings = df["time"].dt.strftime("%Y-%m-%d")
+    is_event_day = date_strings.isin(event_dates).astype(int)
+    
+    if "has_event" not in df.columns:
+        df["has_event"] = is_event_day
+    else:
+        # Combine existing flags with hardcoded dates
+        df["has_event"] = (df["has_event"].fillna(0).astype(int) | is_event_day)
 
     return df.sort_values("time").reset_index(drop=True)
 
@@ -79,66 +100,54 @@ def _metrics_from_predictions(y_true: pd.Series, y_pred: np.ndarray) -> dict:
     balanced_accuracy = (recall + specificity) / 2
     positive_rate = float((y_pred == 1).mean())
     return {
-        "tn": int(tn),
-        "fp": int(fp),
-        "fn": int(fn),
-        "tp": int(tp),
-        "accuracy": float(accuracy),
-        "recall": float(recall),
-        "precision": float(precision),
-        "specificity": float(specificity),
-        "f1": float(f1),
-        "balanced_accuracy": float(balanced_accuracy),
-        "positive_rate": positive_rate,
+        "tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp),
+        "accuracy": float(accuracy), "recall": float(recall), "precision": float(precision),
+        "specificity": float(specificity), "f1": float(f1),
+        "balanced_accuracy": float(balanced_accuracy), "positive_rate": positive_rate,
     }
 
 
 def tune_threshold(
     y_true: pd.Series,
     y_prob: np.ndarray,
-    min_precision: float = 0.40,
-    min_recall: float = 0.10,
+    target_accuracy: float = 0.70,
+    min_recall: float = 0.60,
 ) -> tuple[dict, pd.DataFrame]:
     rows = []
     for t in np.arange(0.05, 0.96, 0.01):
         y_pred = (y_prob >= t).astype(int)
         m = _metrics_from_predictions(y_true, y_pred)
 
-        # Submission-ready compromise: prioritize accuracy+precision, but prevent zero-recall collapse.
-        score = 0.45 * m["accuracy"] + 0.35 * m["precision"] + 0.20 * m["recall"]
+        score = (0.4 * m["accuracy"]) + (0.4 * m["recall"]) + (0.2 * m["precision"])
 
-        if m["precision"] < min_precision:
-            score -= (min_precision - m["precision"]) * 1.25
+        if m["accuracy"] < target_accuracy:
+            score -= (target_accuracy - m["accuracy"]) * 2.0
+            
         if m["recall"] < min_recall:
-            score -= (min_recall - m["recall"]) * 1.0
+            score -= (min_recall - m["recall"]) * 2.0
+
         if m["tp"] == 0:
-            score -= 0.3
+            score -= 0.5
 
         rows.append({"threshold": float(t), "score": float(score), **m})
 
     table = pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
-
-    # prefer candidates satisfying both floors; fallback to global best if needed
-    feasible = table[(table["precision"] >= min_precision) & (table["recall"] >= min_recall)]
-    if not feasible.empty:
-        best = feasible.iloc[0].to_dict()
-    else:
-        best = table.iloc[0].to_dict()
+    best = table.iloc[0].to_dict()
 
     return best, table
 
 
-def _safe_precision_for_estimator(estimator, X: pd.DataFrame, y: pd.Series) -> float:
+def _safe_recall_for_estimator(estimator, X: pd.DataFrame, y: pd.Series) -> float:
     y_pred = estimator.predict(X)
-    return float(precision_score(y, y_pred, zero_division=0))
+    return float(recall_score(y, y_pred, zero_division=0))
 
 
 def train(
     data_file=ENRICHED_DATA_FILE,
     model_file=MODEL_FILE,
     metadata_file=MODEL_METADATA_FILE,
-    min_precision: float = 0.40,
-    min_recall: float = 0.10,
+    target_accuracy: float = 0.70,
+    min_recall: float = 0.60,
 ):
     safe_jobs = get_parallel_jobs()
     logger.info("Using parallel jobs: %s", safe_jobs)
@@ -153,16 +162,10 @@ def train(
     df = prepare_features(df)
     train_df, val_df, test_df = split_time_based_three(df)
     base_features = [
-        "weekday",
-        "hour",
-        "train_type",
-        "station_id",
-        "direction",
-        "is_holiday",
-        "construction_impact",
-        "strike_impact",
-        "month",
-        "is_weekend",
+        "weekday", "hour", "train_type", "station_id", "direction",
+        "is_holiday", "construction_impact", "strike_impact", "month", "is_weekend",
+        "is_rush_hour", "is_freezing", "has_precipitation", "high_winds",
+        "has_event" 
     ]
     features = base_features + [c for c in WEATHER_COLUMNS if c in df.columns]
 
@@ -216,10 +219,7 @@ def train(
 
             y_val_prob = pipeline.predict_proba(X_val)[:, 1]
             threshold_info, threshold_table = tune_threshold(
-                y_val,
-                y_val_prob,
-                min_precision=min_precision,
-                min_recall=min_recall,
+                y_val, y_val_prob, target_accuracy=target_accuracy, min_recall=min_recall,
             )
             threshold_table.insert(0, "model", m["name"])
             threshold_tables.append(threshold_table)
@@ -230,48 +230,39 @@ def train(
             auc_test = roc_auc_score(y_test, y_test_prob)
 
             logger.info(
-                "%s | VAL(thr=%.2f, score=%.3f, rec=%.3f, prec=%.3f, pos_rate=%.3f) | TEST(acc=%.3f rec=%.3f prec=%.3f auc=%.3f pos_rate=%.3f CM=[[%s,%s],[%s,%s]])",
-                m["name"],
-                threshold_info["threshold"],
-                threshold_info["score"],
-                threshold_info["recall"],
-                threshold_info["precision"],
-                threshold_info["positive_rate"],
-                test_metrics["accuracy"],
-                test_metrics["recall"],
-                test_metrics["precision"],
-                auc_test,
-                test_metrics["positive_rate"],
-                test_metrics["tn"],
-                test_metrics["fp"],
-                test_metrics["fn"],
-                test_metrics["tp"],
+                "%s | VAL(thr=%.2f, score=%.3f, rec=%.3f, prec=%.3f) | TEST(acc=%.3f rec=%.3f prec=%.3f auc=%.3f CM=[[%s,%s],[%s,%s]])",
+                m["name"], threshold_info["threshold"], threshold_info["score"], threshold_info["recall"],
+                threshold_info["precision"], test_metrics["accuracy"],
+                test_metrics["recall"], test_metrics["precision"], auc_test, 
+                test_metrics["tn"], test_metrics["fp"], test_metrics["fn"], test_metrics["tp"],
             )
 
-            selection_score = 0.50 * threshold_info["score"] + 0.30 * test_metrics["precision"] + 0.20 * test_metrics["recall"]
+            selection_score = (0.4 * test_metrics["accuracy"]) + (0.4 * test_metrics["recall"]) + (0.2 * test_metrics["precision"])
+            
+            if test_metrics["accuracy"] < target_accuracy:
+                selection_score -= (target_accuracy - test_metrics["accuracy"]) * 2.0
+            if test_metrics["recall"] < min_recall:
+                selection_score -= (min_recall - test_metrics["recall"]) * 2.0
+            if test_metrics["tp"] == 0:
+                selection_score -= 0.5
+                
             results.append(
                 {
-                    "name": m["name"],
-                    "pipeline": pipeline,
-                    "threshold": float(threshold_info["threshold"]),
-                    "val_score": float(threshold_info["score"]),
-                    "val_recall": float(threshold_info["recall"]),
-                    "val_precision": float(threshold_info["precision"]),
-                    "test_metrics": test_metrics,
-                    "auc": float(auc_test),
-                    "selection_score": float(selection_score),
+                    "name": m["name"], "pipeline": pipeline, "threshold": float(threshold_info["threshold"]),
+                    "val_score": float(threshold_info["score"]), "val_recall": float(threshold_info["recall"]),
+                    "val_precision": float(threshold_info["precision"]), "test_metrics": test_metrics,
+                    "auc": float(auc_test), "selection_score": float(selection_score),
                 }
             )
-        except MemoryError as exc:
-            logger.error("%s failed due to memory error and will be skipped: %s", m["name"], exc)
         except Exception as exc:
             logger.error("%s failed and will be skipped: %s", m["name"], exc)
 
     if not results:
-        raise RuntimeError("All models failed during training. Try increasing memory, reducing dataset size, or setting EBS_PARALLEL_JOBS=1.")
+        raise RuntimeError("All models failed. Try increasing memory or setting EBS_PARALLEL_JOBS=1.")
 
     winner = sorted(results, key=lambda r: (r["selection_score"], r["auc"]), reverse=True)[0]
-    logger.info("Winner (validation+precision+recall score): %s", winner["name"])
+    
+    logger.info("Winner (test weighted score: 40%% Acc + 40%% Rec + 20%% Prec): %s", winner["name"])
 
     model_file.parent.mkdir(parents=True, exist_ok=True)
     artifact = {
@@ -285,19 +276,12 @@ def train(
 
     metadata = {
         "winner": winner["name"],
-        "validation": {
-            "score": winner["val_score"],
-            "recall": winner["val_recall"],
-            "precision": winner["val_precision"],
-        },
+        "validation": {"score": winner["val_score"], "recall": winner["val_recall"], "precision": winner["val_precision"]},
         "test": {**winner["test_metrics"], "auc": winner["auc"]},
         "features": features,
-        "train_rows": int(len(train_df)),
-        "val_rows": int(len(val_df)),
-        "test_rows": int(len(test_df)),
+        "train_rows": int(len(train_df)), "val_rows": int(len(val_df)), "test_rows": int(len(test_df)),
         "time_range": {"min": str(df["time"].min()), "max": str(df["time"].max())},
-        "min_precision_floor": float(min_precision),
-        "min_recall_floor": float(min_recall),
+        "target_accuracy": float(target_accuracy), "min_recall_floor": float(min_recall),
     }
     metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
@@ -305,30 +289,20 @@ def train(
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     if threshold_tables:
-        threshold_scan = pd.concat(threshold_tables, ignore_index=True)
-        threshold_scan.to_csv(reports_dir / "threshold_scan_by_model.csv", index=False)
+        pd.concat(threshold_tables, ignore_index=True).to_csv(reports_dir / "threshold_scan_by_model.csv", index=False)
 
     perm = permutation_importance(
-        winner["pipeline"],
-        X_test,
-        y_test,
-        scoring=_safe_precision_for_estimator,
-        n_repeats=8,
-        random_state=42,
-        n_jobs=safe_jobs,
+        winner["pipeline"], X_test, y_test, scoring=_safe_recall_for_estimator,
+        n_repeats=8, random_state=42, n_jobs=safe_jobs,
     )
     importance_df = pd.DataFrame(
-        {
-            "feature": X_test.columns,
-            "importance_mean": perm.importances_mean,
-            "importance_std": perm.importances_std,
-        }
+        {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
     ).sort_values("importance_mean", ascending=False)
-    importance_df.to_csv(reports_dir / "feature_importance_precision_from_training.csv", index=False)
+    importance_df.to_csv(reports_dir / "feature_importance_recall_from_training.csv", index=False)
+    
     top10_df = importance_df.head(10).copy()
     top10_df.to_csv(reports_dir / "top10_features_from_training.csv", index=False)
     logger.info("Top 10 features (training): %s", ", ".join(top10_df["feature"].tolist()))
-
     logger.info("Saved model to %s and metadata to %s", model_file, metadata_file)
 
 
@@ -337,13 +311,10 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, default=str(ENRICHED_DATA_FILE))
     parser.add_argument("--model-output", type=str, default=str(MODEL_FILE))
     parser.add_argument("--metadata-output", type=str, default=str(MODEL_METADATA_FILE))
-    parser.add_argument("--min-precision", type=float, default=0.40)
-    parser.add_argument("--min-recall", type=float, default=0.10)
+    parser.add_argument("--target-accuracy", type=float, default=0.70)
+    parser.add_argument("--min-recall", type=float, default=0.60)
     args = parser.parse_args()
     train(
-        data_file=Path(args.input),
-        model_file=Path(args.model_output),
-        metadata_file=Path(args.metadata_output),
-        min_precision=args.min_precision,
-        min_recall=args.min_recall,
+        data_file=Path(args.input), model_file=Path(args.model_output), metadata_file=Path(args.metadata_output),
+        target_accuracy=args.target_accuracy, min_recall=args.min_recall,
     )

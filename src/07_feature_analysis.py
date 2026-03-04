@@ -11,7 +11,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
+from sklearn.metrics import accuracy_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -43,10 +43,31 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     df["direction"] = df["final_destination_station"].apply(get_direction)
     df["month"] = df["time"].dt.month
     df["is_weekend"] = (df["time"].dt.dayofweek >= 5).astype(int)
+    df["is_rush_hour"] = df["hour"].isin([7, 8, 9, 16, 17, 18]).astype(int)
 
     for c in WEATHER_COLUMNS:
         if c not in df.columns:
             df[c] = 0
+
+    df["is_freezing"] = (df["temp_c"] <= 0).astype(int)
+    df["has_precipitation"] = ((df["precip_mm"] > 0) | (df["rain_mm"] > 0) | (df["snow_cm"] > 0)).astype(int)
+    df["high_winds"] = (df["wind_gusts_kmh"] >= 40).astype(int)
+    
+    # HARDCODED EVENTS
+    event_dates = {
+        "2024-10-27", "2025-10-26", # Frankfurt Marathon
+        "2024-11-11", "2025-02-27", "2025-03-03", "2025-03-04", "2025-11-11", # Mainz Fastnacht
+        "2025-02-23", # German Federal Election
+        "2024-10-31", "2025-10-31"  # Halloween
+    }
+    
+    date_strings = df["time"].dt.strftime("%Y-%m-%d")
+    is_event_day = date_strings.isin(event_dates).astype(int)
+    
+    if "has_event" not in df.columns:
+        df["has_event"] = is_event_day
+    else:
+        df["has_event"] = (df["has_event"].fillna(0).astype(int) | is_event_day)
 
     return df.sort_values("time").reset_index(drop=True)
 
@@ -73,17 +94,14 @@ def run_analysis(input_file: Path, output_dir: Path):
     }
     (output_dir / "data_availability_report.json").write_text(json.dumps(data_audit, indent=2), encoding="utf-8")
 
-    required = {"time", "station_name", "delay_in_min", "final_destination_station", "hour", "weekday", "train_type"}
-    missing = sorted(required - set(raw.columns))
-    if missing:
-        raise ValueError(f"Missing required columns for modeling analysis: {missing}")
-
     df = prepare_features(raw)
     train_df, test_df = split_time_based(df)
 
     base_features = [
         "weekday", "hour", "train_type", "station_id", "direction",
         "is_holiday", "construction_impact", "strike_impact", "month", "is_weekend",
+        "is_rush_hour", "is_freezing", "has_precipitation", "high_winds",
+        "has_event" 
     ]
     features = base_features + [c for c in WEATHER_COLUMNS if c in df.columns]
 
@@ -122,23 +140,24 @@ def run_analysis(input_file: Path, output_dir: Path):
 
     metrics = {
         "accuracy": float(accuracy_score(y_test, y_pred)),
-        "precision": float(precision_score(y_test, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_test, y_pred, zero_division=0)),
         "auc": float(roc_auc_score(y_test, y_prob)),
         "train_rows": int(len(train_df)),
         "test_rows": int(len(test_df)),
     }
     (output_dir / "feature_analysis_metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
-    perm = permutation_importance(pipeline, X_test, y_test, scoring="precision", n_repeats=8, random_state=42, n_jobs=safe_jobs)
+    perm = permutation_importance(pipeline, X_test, y_test, scoring="recall", n_repeats=8, random_state=42, n_jobs=safe_jobs)
     importance_df = pd.DataFrame(
         {"feature": X_test.columns, "importance_mean": perm.importances_mean, "importance_std": perm.importances_std}
     ).sort_values("importance_mean", ascending=False)
-    importance_df.to_csv(output_dir / "feature_importance_precision.csv", index=False)
+    
+    importance_df.to_csv(output_dir / "feature_importance_recall.csv", index=False)
     top10_df = importance_df.head(10).copy()
-    top10_df.to_csv(output_dir / "top10_features_precision.csv", index=False)
+    top10_df.to_csv(output_dir / "top10_features_recall.csv", index=False)
     logger.info("Top 10 features (analysis): %s", ", ".join(top10_df["feature"].tolist()))
 
-    weather_subset = importance_df[importance_df["feature"].isin(WEATHER_COLUMNS)]
+    weather_subset = importance_df[importance_df["feature"].isin(WEATHER_COLUMNS + ["is_freezing", "has_precipitation", "high_winds"])]
     weather_subset.to_csv(output_dir / "weather_feature_importance.csv", index=False)
 
     logger.info("Saved analysis reports to %s", output_dir)
