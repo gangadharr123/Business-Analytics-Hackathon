@@ -11,13 +11,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.tree import DecisionTreeClassifier
 
 from config import (
     DELAY_THRESHOLD_MINUTES,
@@ -147,10 +146,6 @@ def train(
 
     models = [
         {
-            "name": "Decision Tree",
-            "clf": DecisionTreeClassifier(max_depth=8, min_samples_leaf=80, class_weight="balanced", random_state=42),
-        },
-        {
             "name": "Logistic Regression",
             "clf": LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42),
         },
@@ -163,6 +158,16 @@ def train(
                 class_weight="balanced",
                 random_state=42,
                 n_jobs=safe_jobs,
+            ),
+        },
+        {
+            "name": "Gradient Boosting",
+            "clf": GradientBoostingClassifier(
+                n_estimators=200,
+                max_depth=4,
+                learning_rate=0.1,
+                subsample=0.8,
+                random_state=42,
             ),
         },
     ]
