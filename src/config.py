@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import pandas as pd
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,13 @@ STRIKES_FILE = DATA_DIR / "strikes.csv"
 WEATHER_FILE = DATA_DIR / "weather.csv"
 
 DELAY_THRESHOLD_MINUTES = 10
+
+EVENT_DATES: dict[str, list[pd.Timestamp]] = {
+    "frankfurt_marathon": pd.to_datetime(["2024-10-27", "2025-10-26"]).normalize().to_list(),
+    "mainz_fastnacht": pd.to_datetime(["2024-11-11", "2025-02-27", "2025-03-03", "2025-03-04", "2025-11-11"]).normalize().to_list(),
+    "german_federal_election": pd.to_datetime(["2025-02-23"]).normalize().to_list(),
+    "halloween": pd.to_datetime(["2024-10-31", "2025-10-31"]).normalize().to_list(),
+}
 
 TARGET_STATIONS = [
     "Frankfurt(Main)Hbf", "Frankfurt-Höchst", "Wiesbaden Hbf",
