@@ -19,6 +19,7 @@ from config import (
     RAW_DIR,
     RAW_FILE_PATTERN,
     REQUIRED_FILTER_COLUMNS,
+    RUSH_HOURS,
     TARGET_STATIONS,
 )
 
@@ -126,7 +127,7 @@ def filter_commuter_data(
     df_filtered["hour"] = df_filtered["time"].dt.hour
     df_filtered["weekday"] = df_filtered["time"].dt.day_name()
     df_filtered["is_weekend"] = (df_filtered["time"].dt.dayofweek >= 5).astype(int)
-    df_filtered["is_peak_hour"] = df_filtered["hour"].isin([6, 7, 8, 9, 16, 17, 18, 19]).astype(int)
+    df_filtered["is_peak_hour"] = df_filtered["hour"].isin(RUSH_HOURS).astype(int)
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     df_filtered.to_csv(output_file, index=False)

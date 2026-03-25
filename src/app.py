@@ -9,7 +9,7 @@ from pathlib import Path
 # Add local src/ path so Streamlit can import project modules when launched from repo root.
 current_dir = Path(__file__).parent
 sys.path.append(str(current_dir))
-from config import TARGET_STATIONS
+from config import SAFE_THRESHOLD_EXAM, SAFE_THRESHOLD_NORMAL, STATION_MAP
 import importlib
 smart_tool = importlib.import_module("06_smart_commute_tool")
 SmartCommuteAdvisor = smart_tool.SmartCommuteAdvisor
@@ -37,11 +37,12 @@ with st.form("commute_form"):
     col1, col2 = st.columns(2)
     
     with col1:
-        source = st.selectbox("Starting Station", sorted(TARGET_STATIONS), index=sorted(TARGET_STATIONS).index("Wiesbaden Hbf"))
+        _stations = sorted(STATION_MAP.keys())
+        source = st.selectbox("Starting Station", _stations, index=_stations.index("Wiesbaden Hbf"))
         day = st.selectbox("Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-    
+
     with col2:
-        dest = st.selectbox("Campus Destination", ["Oestrich-Winkel (Campus A / Burg)", "Hattenheim (Campus B / Schloss)"])
+        dest = st.selectbox("Campus Destination", ["Oestrich-Winkel", "Hattenheim"])
         class_time = st.time_input("Class Start Time", value=datetime.time(9, 0))
     
     st.markdown("---")
@@ -68,7 +69,7 @@ if submitted:
     prob2, label2, buf2, feat2 = advisor.get_risk(source, dest, day, opt2_hour, has_event=event_flag)
     
     # Lower tolerance when users mark exam/presentation mode.
-    safe_threshold = 0.25 if exam_mode else 0.40
+    safe_threshold = SAFE_THRESHOLD_EXAM if exam_mode else SAFE_THRESHOLD_NORMAL
     
     st.header("📋 AI Recommendation")
     

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from config import DELAY_THRESHOLD_MINUTES, EVENT_DATES, STATION_MAP, WEATHER_COLUMNS
+from config import (
+    DELAY_THRESHOLD_MINUTES, EVENT_DATES, FREEZING_TEMP_C,
+    HIGH_WINDS_KMH, RUSH_HOURS, STATION_MAP, WEATHER_COLUMNS,
+)
 
 
 def get_direction(final_dest: str) -> int:
@@ -22,17 +25,18 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     df["direction"] = df["final_destination_station"].apply(get_direction)
     df["month"] = df["time"].dt.month
     df["is_weekend"] = (df["time"].dt.dayofweek >= 5).astype(int)
-    df["is_rush_hour"] = df["hour"].isin([7, 8, 9, 16, 17, 18]).astype(int)
+    df["is_rush_hour"] = df["hour"].isin(RUSH_HOURS).astype(int)
 
     for c in WEATHER_COLUMNS:
         if c not in df.columns:
             df[c] = 0
 
-    df["is_freezing"] = (df["temp_c"] <= 0).astype(int)
+    df["is_freezing"] = (df["temp_c"] <= FREEZING_TEMP_C).astype(int)
     df["has_precipitation"] = ((df["precip_mm"] > 0) | (df["rain_mm"] > 0) | (df["snow_cm"] > 0)).astype(int)
-    df["high_winds"] = (df["wind_gusts_kmh"] >= 40).astype(int)
+    df["high_winds"] = (df["wind_gusts_kmh"] >= HIGH_WINDS_KMH).astype(int)
 
-    event_dates = {d for dates in EVENT_DATES.values() for d in dates}
+    # Convert Timestamps to "YYYY-MM-DD" strings so isin() comparison works correctly.
+    event_dates = {d.strftime("%Y-%m-%d") for dates in EVENT_DATES.values() for d in dates}
 
     date_strings = df["time"].dt.strftime("%Y-%m-%d")
     is_event_day = date_strings.isin(event_dates).astype(int)

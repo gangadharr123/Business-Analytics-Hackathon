@@ -33,6 +33,25 @@ WEATHER_FILE = DATA_DIR / "weather.csv"
 
 DELAY_THRESHOLD_MINUTES = 10
 
+# --- Feature engineering thresholds (single source of truth) ---
+RUSH_HOURS: list[int] = [7, 8, 9, 16, 17, 18]
+FREEZING_TEMP_C: int = 0
+HIGH_WINDS_KMH: int = 40
+
+# --- Buffer recommendation: (min_prob, buffer_minutes), checked in order ---
+BUFFER_THRESHOLDS: list[tuple[float, int]] = [(0.60, 15), (0.40, 10), (0.25, 7)]
+BUFFER_DEFAULT_MINUTES: int = 5
+
+# --- App-level risk tolerance ---
+SAFE_THRESHOLD_NORMAL: float = 0.40
+SAFE_THRESHOLD_EXAM: float = 0.25
+
+# --- Supported train types for inference ---
+VALID_TRAIN_TYPES: frozenset[str] = frozenset({"RB10"})
+VALID_WEEKDAYS: frozenset[str] = frozenset({
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+})
+
 EVENT_DATES: dict[str, list[pd.Timestamp]] = {
     "frankfurt_marathon": pd.to_datetime(["2024-10-27", "2025-10-26"]).normalize().to_list(),
     "mainz_fastnacht": pd.to_datetime(["2024-11-11", "2025-02-27", "2025-03-03", "2025-03-04", "2025-11-11"]).normalize().to_list(),
@@ -61,6 +80,21 @@ STATION_MAP = {
     "Hattenheim": 6,
     "Geisenheim": 7,
     "Rüdesheim(Rhein)": 8,
+}
+
+# Lowercase aliases for strict station lookup in inference (canonical names + UI display names)
+STATION_ALIASES: dict[str, int] = {
+    **{k.lower(): v for k, v in STATION_MAP.items()},
+    # Short forms used in CLI / tests
+    "frankfurt": 0,
+    "frankfurt hbf": 0,
+    "wiesbaden": 2,
+    "rüdesheim": 8,
+    "rudesheim": 8,
+    "rüdesheim(rhein)": 8,
+    # App display names
+    "oestrich-winkel (campus a / burg)": 5,
+    "hattenheim (campus b / schloss)": 6,
 }
 
 WEATHER_COLUMNS = [

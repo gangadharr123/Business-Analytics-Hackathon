@@ -8,18 +8,19 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
-from config import DEFAULT_INFERENCE_PAYLOAD, MODEL_FILE
+from config import (
+    BUFFER_DEFAULT_MINUTES, BUFFER_THRESHOLDS, DEFAULT_INFERENCE_PAYLOAD,
+    FREEZING_TEMP_C, HIGH_WINDS_KMH, MODEL_FILE, RUSH_HOURS,
+    STATION_ALIASES, STATION_MAP, VALID_TRAIN_TYPES, VALID_WEEKDAYS,
+)
 
 
 def recommend_buffer_minutes(risk_probability: float) -> int:
     """Simple decision-support rule for commuter planning buffer."""
-    if risk_probability >= 0.60:
-        return 15
-    if risk_probability >= 0.40:
-        return 10
-    if risk_probability >= 0.25:
-        return 7
-    return 5
+    for threshold, minutes in BUFFER_THRESHOLDS:
+        if risk_probability >= threshold:
+            return minutes
+    return BUFFER_DEFAULT_MINUTES
 
 
 class SmartCommuteAdvisor:
@@ -35,18 +36,22 @@ class SmartCommuteAdvisor:
         self.threshold = float(data.get("threshold", 0.5))
 
     def _get_station_id(self, name: str) -> int:
-        name_l = name.lower()
-        if "frankfurt" in name_l: return 0
-        if "wiesbaden" in name_l: return 2
-        if "eltville" in name_l: return 4
-        if "oestrich" in name_l or "burg" in name_l: return 5
-        if "hattenheim" in name_l or "schloss" in name_l: return 6
-        if "geisenheim" in name_l: return 7
-        if "rudesheim" in name_l or "rüdesheim" in name_l: return 8
-        return 2
+        key = name.strip().lower()
+        if key not in STATION_ALIASES:
+            raise ValueError(
+                f"Unknown station: '{name}'. Valid stations: {sorted(STATION_MAP.keys())}"
+            )
+        return STATION_ALIASES[key]
 
     # Include contextual event information so inference mirrors training features.
-    def get_risk(self, source: str, dest: str, day: str, hour: int, train_type: str = "RB", has_event: int = 0):
+    def get_risk(self, source: str, dest: str, day: str, hour: int, train_type: str = "RB10", has_event: int = 0):
+        if not isinstance(hour, int) or not (0 <= hour <= 23):
+            raise ValueError(f"hour must be an integer 0–23, got: {hour!r}")
+        if day not in VALID_WEEKDAYS:
+            raise ValueError(f"day must be one of {sorted(VALID_WEEKDAYS)}, got: {day!r}")
+        if train_type not in VALID_TRAIN_TYPES:
+            raise ValueError(f"train_type must be one of {sorted(VALID_TRAIN_TYPES)}, got: {train_type!r}")
+
         s_id = self._get_station_id(source)
         d_id = self._get_station_id(dest)
         direction = 0 if s_id > d_id else 1
@@ -59,15 +64,15 @@ class SmartCommuteAdvisor:
             "direction": direction,
             "month": datetime.datetime.now().month,
             "is_weekend": 1 if day.lower() in {"saturday", "sunday"} else 0,
-            "is_rush_hour": 1 if hour in [7, 8, 9, 16, 17, 18] else 0,
+            "is_rush_hour": 1 if hour in RUSH_HOURS else 0,
             "has_event": has_event,
         }
         base.update(DEFAULT_INFERENCE_PAYLOAD)
-        
+
         # Derive compact weather risk indicators consumed by the trained model.
-        base["is_freezing"] = 1 if base.get("temp_c", 0) <= 0 else 0
+        base["is_freezing"] = 1 if base.get("temp_c", 0) <= FREEZING_TEMP_C else 0
         base["has_precipitation"] = 1 if (base.get("precip_mm", 0) > 0 or base.get("rain_mm", 0) > 0 or base.get("snow_cm", 0) > 0) else 0
-        base["high_winds"] = 1 if base.get("wind_gusts_kmh", 0) >= 40 else 0
+        base["high_winds"] = 1 if base.get("wind_gusts_kmh", 0) >= HIGH_WINDS_KMH else 0
 
         input_data = pd.DataFrame([{k: base.get(k, 0) for k in self.feature_columns}])
 
@@ -79,5 +84,5 @@ class SmartCommuteAdvisor:
 
 if __name__ == "__main__":
     advisor = SmartCommuteAdvisor()
-    risk, pred, buffer_min, features = advisor.get_risk("Frankfurt", "Burg", "Friday", 18)
+    risk, pred, buffer_min, features = advisor.get_risk("Frankfurt(Main)Hbf", "Oestrich-Winkel", "Friday", 18)
     print(f"Risk: {risk:.1%} | Predicted delayed={bool(pred)} | threshold={advisor.threshold:.2f} | Suggested buffer={buffer_min} min")
