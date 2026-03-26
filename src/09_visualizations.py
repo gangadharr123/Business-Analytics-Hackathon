@@ -261,6 +261,34 @@ def plot_model_comparison(scan_csv: Path, out_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 6. Delay distribution histogram
+# ---------------------------------------------------------------------------
+def plot_delay_distribution(df: pd.DataFrame, out_path: Path) -> None:
+    # Cap display at 60 min for readability; show percentage of trips beyond cap
+    cap = 60
+    capped = df[df["delay_in_min"] <= cap]["delay_in_min"]
+    pct_beyond = (df["delay_in_min"] > cap).mean()
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(capped, bins=range(0, cap + 2, 1), color=_PRIMARY, edgecolor="white", linewidth=0.4)
+    ax.axvline(DELAY_THRESHOLD_MINUTES, color=_DANGER, lw=2, linestyle="--",
+               label=f"Delay threshold ({DELAY_THRESHOLD_MINUTES} min)")
+
+    ax.set_xlabel("Delay (minutes)", fontsize=11)
+    ax.set_ylabel("Number of Trips", fontsize=11)
+    ax.set_title("Distribution of Train Delays (0–60 min)", fontsize=14, fontweight="bold", pad=12)
+    ax.legend(frameon=True)
+
+    if pct_beyond > 0:
+        ax.text(0.98, 0.95, f"{pct_beyond:.1%} of trips > {cap} min (not shown)",
+                transform=ax.transAxes, ha="right", va="top", fontsize=9, color=_NEUTRAL)
+
+    sns.despine(ax=ax)
+    fig.tight_layout()
+    _save(fig, out_path)
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 def generate_all(data_file: Path = ENRICHED_DATA_FILE, reports_dir: Path = REPORTS_DIR) -> None:
@@ -291,6 +319,7 @@ def generate_all(data_file: Path = ENRICHED_DATA_FILE, reports_dir: Path = REPOR
         feat_dir / "threshold_scan_by_model.csv",
         figures_dir / "model_comparison.png",
     )
+    plot_delay_distribution(df, figures_dir / "delay_distribution.png")
 
     saved = list(figures_dir.glob("*.png"))
     print(f"\nDone — {len(saved)} figures saved to: {figures_dir}")

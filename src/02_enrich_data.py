@@ -25,6 +25,15 @@ def read_csv_bulletproof(file_path: Path) -> pd.DataFrame:
     if not file_path.exists():
         return pd.DataFrame()
 
+    # Detect Excel files by magic bytes (PK header = ZIP-based .xlsx)
+    try:
+        with open(file_path, "rb") as fh:
+            magic = fh.read(4)
+        if magic[:2] == b"PK" or magic == b"\xd0\xcf\x11\xe0":  # xlsx or xls
+            return pd.read_excel(file_path)
+    except Exception:
+        pass
+
     separators = [",", ";", "\t"]
     encodings = ["utf-8", "latin1", "cp1252"]
 

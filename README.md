@@ -1,23 +1,24 @@
 # Business-Analytics-Hackathon
 
-## Commute Delay Prediction (Simplified)
+## EBS Smart Commute Advisor — RB10 Delay Prediction
 
-This repository predicts whether a train trip is likely to be delayed for the Frankfurt ↔ Rheingau/EBS commute corridor.
+This repository predicts whether an RB10 train trip on the **Frankfurt ↔ Rheingau corridor** is likely to be delayed, and surfaces that prediction as a student-facing decision-support tool.
 
 The project is intentionally kept **simple and explainable**:
-- use the available columns directly,
-- avoid heavy feature engineering,
-- optimize model behavior for **accuracy and precision**.
+- use available columns directly with minimal feature engineering,
+- optimize model threshold for **balanced recall and accuracy** (not just accuracy),
+- present results as actionable commute recommendations, not raw probabilities.
 
 ---
 
 ## Data Sources
 
-The pipeline uses these files:
-- Raw rail data: `data/raw/data-YYYY-MM.parquet`
-- Weather data: `data/weather.csv`
-- Strike data: `data/strikes.csv`
-- Construction data: `data/construction.csv`
+| File | Description |
+|------|-------------|
+| `data/raw/data-YYYY-MM.parquet` | Raw Deutsche Bahn departure data (Jul 2024 – Dec 2025) |
+| `data/weather.csv` | Hourly weather for the Frankfurt region (Open-Meteo) |
+| `data/strikes.csv` | Rail strike dates (GDL/EVG actions) |
+| `data/construction.csv` | Track construction periods with severity levels |
 
 Core paths and constants are centralized in `src/config.py`.
 
@@ -26,56 +27,68 @@ Core paths and constants are centralized in `src/config.py`.
 ## Pipeline
 
 1. **Filter data** – `src/01_filter_data.py`
-   - keeps relevant corridor stations and required rail columns.
+   - Keeps only RB10 trains (`train_name` contains "RB10") at valid corridor stations.
+   - Normalizes station names and adds `hour`, `weekday`, `is_weekend`, `is_peak_hour`.
 
 2. **Enrich data** – `src/02_enrich_data.py`
-   - adds weather, strike, construction, and holiday context.
+   - Joins weather (by date + hour), strike flags, construction impact scores, and public holidays.
 
 3. **Train model** – `src/05_train_ml_model.py`
-   - uses a time-based train/validation/test split,
-   - compares Decision Tree, Logistic Regression, Random Forest,
-   - tunes threshold with an objective focused on **accuracy + precision** with a small recall floor to avoid predicting only the majority class.
-   - exports `reports/feature_analysis/threshold_scan_by_model.csv` for submission-ready threshold transparency.
+   - Time-based 70 / 15 / 15 train/validation/test split (no shuffle).
+   - Compares **Logistic Regression**, **Random Forest**, and **Gradient Boosting**.
+   - Tunes decision threshold on validation set using a composite score: `0.4 × accuracy + 0.4 × recall + 0.2 × precision`, with a minimum recall floor of 0.5 to prevent degenerate all-negative predictions.
+   - Note: ~10% of trips are delayed — accuracy alone is a misleading metric here. Balanced accuracy and AUC are the primary quality indicators.
+   - Exports `reports/feature_analysis/threshold_scan_by_model.csv` for full threshold transparency.
 
 4. **Inference tool** – `src/06_smart_commute_tool.py`
-   - outputs delay probability, predicted class, and suggested buffer minutes.
+   - Outputs delay probability, predicted class, and recommended buffer minutes for a given departure.
 
 5. **Feature analysis** – `src/07_feature_analysis.py`
-   - trains a simple analysis model and writes feature-importance reports.
+   - Trains an analysis-only Random Forest and writes permutation importance reports.
 
 6. **Study reports** – `src/08_studies_and_decision_support.py`
-   - produces summary tables for delay patterns and practical buffer planning.
+   - Produces delay probability tables by weekday/hour, factor effects, and buffer planning CSV.
+   - Filters out slots with fewer than 30 observations to ensure statistical reliability.
+
+7. **Visualizations** – `src/09_visualizations.py`
+   - Generates delay-by-hour, delay-by-day, heatmap, feature importance, model comparison, and delay distribution charts.
+
+8. **Streamlit app** – `src/app.py`
+   - Student-facing UI: select station, day, and class time → get risk level, delay probability, and recommended buffer.
 
 ---
 
 ## Target Definition
 
-A trip is considered delayed when:
-- `delay_in_min > 10`
+A trip is labelled **delayed** when:
 
-This threshold is configured via `DELAY_THRESHOLD_MINUTES` in `src/config.py`.
+```
+delay_in_min > 10
+```
 
----
-
-## Simplified Feature Set
-
-The training script focuses on direct, low-complexity predictors:
-- time/context: `weekday`, `hour`, `month`, `is_weekend`
-- route/operation: `station_id`, `direction`, `train_type`
-- disruption flags: `is_holiday`, `construction_impact`, `strike_impact`
-- weather columns from `WEATHER_COLUMNS` in `src/config.py`
-
-No lag chains, no interaction-heavy composites, and no target-encoding features are required.
+Threshold configured via `DELAY_THRESHOLD_MINUTES` in `src/config.py`.
 
 ---
 
-## Evaluation Focus
+## Feature Set
 
-Primary focus:
-- **Accuracy**
-- **Precision**
+| Category | Features |
+|----------|----------|
+| Time | `weekday`, `hour`, `month`, `is_weekend`, `is_rush_hour` |
+| Route | `station_id`, `direction`, `train_type` |
+| Disruptions | `is_holiday`, `construction_impact`, `strike_impact`, `has_event` |
+| Weather | `temp_c`, `humidity_pct`, `precip_mm`, `rain_mm`, `snow_cm`, `feels_like_c`, `wind_gusts_kmh`, `wind_speed_kmh`, `wind_dir_10m` |
+| Derived weather | `is_freezing`, `has_precipitation`, `high_winds` |
 
-The threshold tuning objective in training uses a weighted score that prioritizes these metrics, while still enforcing a small minimum recall to avoid degenerate all-negative predictions.
+---
+
+## Evaluation
+
+Primary metrics (in order of importance):
+1. **Balanced Accuracy** — corrects for class imbalance (~10% delayed)
+2. **AUC** — threshold-independent discrimination quality
+3. **Recall** — critical for a safety-oriented use case (missing a delay is costly)
+4. **Precision** — reduces unnecessary buffer recommendations
 
 ---
 
@@ -86,25 +99,33 @@ From the repository root:
 ```bash
 python src/01_filter_data.py
 python src/02_enrich_data.py
-python src/05_train_ml_model.py --min-precision 0.40 --min-recall 0.10
+python src/05_train_ml_model.py
 python src/06_smart_commute_tool.py
 python src/07_feature_analysis.py
 python src/08_studies_and_decision_support.py
+python src/09_visualizations.py
+streamlit run src/app.py
 ```
 
 ---
 
 ## Outputs
 
-- Model artifact: `models/delay_model_v3.joblib`
-- Metadata: `models/delay_model_v3_metadata.json`
-- Feature analysis reports: `reports/feature_analysis/`
-- Study reports: `reports/key_studies/`
+| Artifact | Location |
+|----------|----------|
+| Model + threshold | `models/delay_model_v3.joblib` |
+| Model metadata | `models/delay_model_v3_metadata.json` |
+| Feature importance | `reports/feature_analysis/top10_features_from_training.csv` |
+| Threshold scan | `reports/feature_analysis/threshold_scan_by_model.csv` |
+| Study reports | `reports/key_studies/` |
+| Figures | `reports/figures/` |
 
+---
 
-## Submission-ready checklist
+## Submission Checklist
 
-- Run the full pipeline in order from the **Run Commands** section.
-- Verify `models/delay_model_v3_metadata.json` includes both precision and recall above zero on test data.
-- Verify `reports/feature_analysis/threshold_scan_by_model.csv` exists and pick the operating threshold based on your project tradeoff.
-- Include `reports/feature_analysis/top10_features_from_training.csv` and `reports/feature_analysis/top10_features_precision.csv` in your appendix/report.
+- [ ] Run the full pipeline in order from the **Run Commands** section.
+- [ ] Verify `models/delay_model_v3_metadata.json` — check `balanced_accuracy` and `auc` on test data.
+- [ ] Verify `reports/feature_analysis/threshold_scan_by_model.csv` exists.
+- [ ] Confirm `streamlit run src/app.py` launches without errors.
+- [ ] Include `reports/figures/` charts in the presentation appendix.

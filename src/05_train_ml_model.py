@@ -116,6 +116,11 @@ def train(
         raise ValueError(f"Input schema invalid. Missing columns: {missing}")
 
     df = prepare_features(df)
+    # Class imbalance note: ~10% of trips are delayed (delay_in_min > DELAY_THRESHOLD_MINUTES).
+    # Accuracy alone is misleading here — a naive "always on-time" classifier scores ~90%.
+    # Models use class_weight="balanced" and threshold tuning to improve recall.
+    delay_rate = df["is_delayed"].mean()
+    logger.info("Class balance — delayed: %.1f%% | on-time: %.1f%%", delay_rate * 100, (1 - delay_rate) * 100)
     train_df, val_df, test_df = split_time_based_three(df)
     base_features = [
         "weekday", "hour", "train_type", "station_id", "direction",
@@ -224,7 +229,14 @@ def train(
 
     winner = sorted(results, key=lambda r: (r["selection_score"], r["auc"]), reverse=True)[0]
     
-    logger.info("Winner (test weighted score: 40%% Acc + 40%% Rec + 20%% Prec): %s", winner["name"])
+    logger.info(
+        "Winner: %s | Balanced Acc: %.3f | AUC: %.3f | Recall: %.3f | Precision: %.3f",
+        winner["name"],
+        winner["test_metrics"]["balanced_accuracy"],
+        winner["auc"],
+        winner["test_metrics"]["recall"],
+        winner["test_metrics"]["precision"],
+    )
 
     model_file.parent.mkdir(parents=True, exist_ok=True)
     artifact = {

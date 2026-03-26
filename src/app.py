@@ -38,7 +38,7 @@ with st.form("commute_form"):
     
     with col1:
         _stations = sorted(STATION_MAP.keys())
-        source = st.selectbox("Starting Station", _stations, index=_stations.index("Wiesbaden Hbf"))
+        source = st.selectbox("Starting Station", _stations, index=_stations.index("WiesbadenHbf"))
         day = st.selectbox("Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
 
     with col2:

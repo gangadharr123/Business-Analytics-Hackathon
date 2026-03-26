@@ -60,20 +60,20 @@ EVENT_DATES: dict[str, list[pd.Timestamp]] = {
 }
 
 TARGET_STATIONS = [
-    "Frankfurt(Main)Hbf", "Frankfurt-Höchst", "Wiesbaden Hbf",
+    "Frankfurt(Main)Hbf", "Frankfurt-Höchst", "WiesbadenHbf",
     "Wiesbaden-Biebrich", "Eltville", "Oestrich-Winkel",
-    "Hattenheim", "Geisenheim", "Rüdesheim(Rhein)", "Mainz Hbf"
+    "Hattenheim", "Geisenheim", "Rüdesheim(Rhein)",
 ]
 
 REQUIRED_FILTER_COLUMNS = [
-    "station_name", "time", "delay_in_min", "train_type", "final_destination_station"
+    "station_name", "time", "delay_in_min", "train_type", "final_destination_station", "train_name"
 ]
 
 
 STATION_MAP = {
     "Frankfurt(Main)Hbf": 0,
     "Frankfurt-Höchst": 1,
-    "Wiesbaden Hbf": 2,
+    "WiesbadenHbf": 2,
     "Wiesbaden-Biebrich": 3,
     "Eltville": 4,
     "Oestrich-Winkel": 5,

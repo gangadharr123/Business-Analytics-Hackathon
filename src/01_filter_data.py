@@ -102,7 +102,21 @@ def _read_and_filter_single(file_path: Path) -> pd.DataFrame:
 
     table = pq.read_table(file_path, columns=REQUIRED_FILTER_COLUMNS)
     df = table.to_pandas()
-    return df[df["station_name"].isin(TARGET_STATIONS)].copy()
+    
+    # Normalize station names by removing all spaces for robust matching
+    df["station_name"] = df["station_name"].str.replace(" ", "", regex=False)
+    
+    # Filter for target stations and RB10 trains (by name)
+    mask = (
+        df["station_name"].isin(TARGET_STATIONS) & 
+        df["train_name"].str.contains("RB10", na=False, case=False)
+    )
+    df_filtered = df[mask].copy()
+    
+    # Normalize train_type to RB10 for consistency in the model
+    df_filtered["train_type"] = "RB10"
+    
+    return df_filtered
 
 
 def filter_commuter_data(

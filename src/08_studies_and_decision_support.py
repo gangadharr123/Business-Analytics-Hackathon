@@ -52,6 +52,9 @@ def probability_by_time_day(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+MIN_TRIPS_FOR_RELIABILITY = 30
+
+
 def probability_for_specific_train(df: pd.DataFrame) -> pd.DataFrame:
     # If a real train identifier exists, use it; else use a practical proxy
     id_candidates = ["train_id", "trip_id", "train_number", "line", "trip_short_name"]
@@ -71,20 +74,22 @@ def probability_for_specific_train(df: pd.DataFrame) -> pd.DataFrame:
         )
         out.rename(columns={chosen_id: "train_identifier"}, inplace=True)
         out["identifier_type"] = chosen_id
-        return out
-
-    out = (
-        df.groupby(["train_type", "station_name", "hour"], as_index=False)
-        .agg(
-            delay_probability=("is_delayed", "mean"),
-            avg_delay_min=("delay_in_min", "mean"),
-            p90_delay_min=("delay_in_min", lambda x: float(np.percentile(x, 90))),
-            trips=("is_delayed", "size"),
+    else:
+        out = (
+            df.groupby(["train_type", "station_name", "hour"], as_index=False)
+            .agg(
+                delay_probability=("is_delayed", "mean"),
+                avg_delay_min=("delay_in_min", "mean"),
+                p90_delay_min=("delay_in_min", lambda x: float(np.percentile(x, 90))),
+                trips=("is_delayed", "size"),
+            )
+            .sort_values("delay_probability", ascending=False)
         )
-        .sort_values("delay_probability", ascending=False)
-    )
-    out["identifier_type"] = "proxy(train_type+station+hour)"
-    out.rename(columns={"train_type": "train_identifier"}, inplace=True)
+        out["identifier_type"] = "proxy(train_type+station+hour)"
+        out.rename(columns={"train_type": "train_identifier"}, inplace=True)
+
+    # Filter out statistically unreliable slots (fewer than MIN_TRIPS_FOR_RELIABILITY observations)
+    out = out[out["trips"] >= MIN_TRIPS_FOR_RELIABILITY].reset_index(drop=True)
     return out
 
 
@@ -159,7 +164,11 @@ def buffer_recommendations(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def write_summary_markdown(output_dir: Path, reliability: dict, p_time_day: pd.DataFrame, p_train: pd.DataFrame, effects: pd.DataFrame):
-    top_risky_slots = p_time_day.sort_values("delay_probability", ascending=False).head(5)
+    top_risky_slots = (
+        p_time_day[p_time_day["trips"] >= MIN_TRIPS_FOR_RELIABILITY]
+        .sort_values("delay_probability", ascending=False)
+        .head(5)
+    )
     top_train_proxy = p_train.head(5)
     top_factors = effects.head(10)
 
