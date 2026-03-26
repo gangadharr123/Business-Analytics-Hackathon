@@ -31,7 +31,7 @@ CONSTRUCTION_FILE = DATA_DIR / "construction.csv"
 STRIKES_FILE = DATA_DIR / "strikes.csv"
 WEATHER_FILE = DATA_DIR / "weather.csv"
 
-DELAY_THRESHOLD_MINUTES = 10
+DELAY_THRESHOLD_MINUTES = 4
 
 # --- Feature engineering thresholds (single source of truth) ---
 RUSH_HOURS: list[int] = [7, 8, 9, 16, 17, 18]
